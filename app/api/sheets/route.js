@@ -1,45 +1,55 @@
-const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets'
-const KEY = process.env.GOOGLE_SHEETS_API_KEY
+import { google } from 'googleapis'
+
 const SHEET_ID = process.env.GOOGLE_SPREADSHEET_ID
 
-async function appendRow(sheetName, values) {
-  const url = `${SHEETS_API}/${SHEET_ID}/values/${sheetName}!A1:append?valueInputOption=USER_ENTERED&key=${KEY}`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ values: [values] }),
+async function getSheets() {
+  const auth = new google.auth.GoogleAuth({
+    credentials: {
+      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    },
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   })
-  if (!res.ok) throw new Error(`Sheets error: ${res.status}`)
-  return res.json()
+  return google.sheets({ version: 'v4', auth })
 }
 
-async function getRows(sheetName) {
-  const url = `${SHEETS_API}/${SHEET_ID}/values/${sheetName}!A1:Z1000?key=${KEY}`
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`Sheets read error: ${res.status}`)
-  const data = await res.json()
-  return data.values || []
+async function appendRow(sheets, sheetName, values) {
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: `${sheetName}!A1`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [values] },
+  })
+}
+
+async function getRows(sheets, sheetName) {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${sheetName}!A1:Z1000`,
+  })
+  return res.data.values || []
 }
 
 export async function POST(request) {
   try {
     const body = await request.json()
     const { action, session, exercise } = body
+    const sheets = await getSheets()
 
     if (action === 'saveSession') {
       const s = session
-      await appendRow('Sessions', [s.id, s.date, s.type, s.duration, s.rpe, s.notes || '', s.dist || '', s.hr || ''])
+      await appendRow(sheets, 'Sessions', [s.id, s.date, s.type, s.duration, s.rpe, s.notes || '', s.dist || '', s.hr || ''])
       return Response.json({ ok: true })
     }
 
     if (action === 'saveExercise') {
       const e = exercise
-      await appendRow('Exercises', [e.sessionId, e.date, e.name, e.sets, e.reps, e.kg])
+      await appendRow(sheets, 'Exercises', [e.sessionId, e.date, e.name, e.sets, e.reps, e.kg])
       return Response.json({ ok: true })
     }
 
     if (action === 'getSessions') {
-      const rows = await getRows('Sessions')
+      const rows = await getRows(sheets, 'Sessions')
       const sessions = rows.map(r => ({
         id: r[0], date: r[1], type: r[2], duration: +r[3],
         rpe: r[4], notes: r[5] || '', dist: r[6] || '', hr: r[7] || '',
@@ -48,7 +58,7 @@ export async function POST(request) {
     }
 
     if (action === 'getExercises') {
-      const rows = await getRows('Exercises')
+      const rows = await getRows(sheets, 'Exercises')
       const exercises = rows.map(r => ({
         sessionId: r[0], date: r[1], name: r[2],
         sets: +r[3], reps: +r[4], kg: +r[5],
