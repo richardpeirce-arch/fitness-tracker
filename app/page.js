@@ -1,188 +1,647 @@
-.app {
-  max-width: 680px;
-  margin: 0 auto;
-  min-height: 100vh;
-  background: #f5f5f5;
+'use client'
+import { useState, useEffect, useRef } from 'react'
+import styles from './page.module.css'
+
+const EXERCISES = {
+  Push: ['Arnold press','Bench press','Cable fly','Chest fly','Chest press (machine)','Dumbbell press','Incline bench press','Incline dumbbell press','Lateral raise','Overhead press','Pushups','Shoulder press','Tricep dips','Tricep pushdown','Overhead tricep extension','Front raise'],
+  Pull: ['Barbell row','Bicep curl','Cable row','Chin-up','Dumbbell row','Face pull','Hammer curl','Incline curl','Inverted row','Lat pulldown','Preacher curl','Pull-up','Seated cable row','Single-arm row'],
+  Legs: ['Bulgarian split squat','Calf raise','Deadlift','Goblet squat','Glute bridge','Hip thrust','Leg curl','Leg extension','Leg press','Lunges','Romanian deadlift','Split squat','Squat','Step-up','Sumo deadlift'],
+  Core: ['Ab wheel','Bird dog','Cable crunch','Dead bug','Dragon flag','Hanging knee raise','Hanging leg raise','L-sit','Pallof press','Plank','Russian twist','Side plank','Suitcase carry','Toes to bar','Woodchop'],
 }
 
-.header {
-  padding: 16px 20px 12px;
-  background: #fff;
-  border-bottom: 1px solid #eee;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  position: sticky;
-  top: 0;
-  z-index: 10;
+const CARDIO_TYPES = ['Treadmill','Bike','Rower','Cross trainer','Outdoor run','Outdoor cycle','Swimming','Other']
+const PILATES_FOCUS = ['Full body','Core focus','Legs focus','Upper body focus','Glutes focus']
+const CATEGORIES = ['Push','Pull','Legs','Core']
+const SESSION_TYPES = ['Strength','Pilates','Cardio','Mixed']
+
+const BADGE = {
+  Push: { bg: '#dbeafe', color: '#1e40af' },
+  Pull: { bg: '#ede9fe', color: '#5b21b6' },
+  Legs: { bg: '#dcfce7', color: '#166534' },
+  Core: { bg: '#fef3c7', color: '#92400e' },
+  Pilates: { bg: '#fce7f3', color: '#9d174d' },
+  Cardio: { bg: '#d1fae5', color: '#065f46' },
+  Strength: { bg: '#e0f2fe', color: '#0369a1' },
+  Mixed: { bg: '#f3f4f6', color: '#374151' },
 }
 
-.logo { font-size: 16px; font-weight: 700; color: #111; }
-.sublogo { font-size: 12px; color: #999; margin-top: 1px; }
+function todayStr() { return new Date().toISOString().split('T')[0] }
+function fmtDate(d) { return new Date(d + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' }) }
+function rpeColor(r) { return +r >= 8 ? '#dc2626' : +r >= 6 ? '#d97706' : '#16a34a' }
 
-.nav {
-  display: flex;
-  background: #fff;
-  border-bottom: 1px solid #eee;
-  padding: 0 4px;
-  position: sticky;
-  top: 57px;
-  z-index: 10;
+const DEFAULT_PROFILE = {
+  age: '42',
+  experience: '12 years training, less frequently in the last 6 since having kids',
+  injuries: 'Left shoulder — multiple surgeries, now stable. Shoulder stability work important. Lower back can be tight — pilates helps.',
+  goals: 'Healthspan and longevity. Support a stressful job and family life. General health and consistency, not athletic performance.',
+  notes: '',
 }
 
-.navBtn {
-  flex: 1;
-  padding: 11px 2px;
-  font-size: 12px;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: #888;
-  transition: all 0.15s;
-  font-weight: 400;
+function api(action, data = {}) {
+  return fetch('/api/sheets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, ...data }),
+  }).then(r => r.json())
 }
 
-.navBtnActive {
-  color: #111;
-  border-bottom-color: #111;
-  font-weight: 600;
+function Slider({ label, value, onChange }) {
+  return (
+    <div className={styles.sliderRow}>
+      <span className={styles.sliderLabel}>{label}</span>
+      <input type="range" min="1" max="5" step="1" value={value} onChange={e => onChange(+e.target.value)} />
+      <span className={styles.sliderVal}>{value}</span>
+    </div>
+  )
 }
 
-.content { padding: 16px; }
+export default function App() {
+  const [tab, setTab] = useState('log')
+  const [sessions, setSessions] = useState([])
+  const [exercises, setExercises] = useState([])
+  const [cardio, setCardio] = useState([])
+  const [reflections, setReflections] = useState([])
+  const [profile, setProfile] = useState(DEFAULT_PROFILE)
+  const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [chatHistory, setChatHistory] = useState([])
+  const [chatLoading, setChatLoading] = useState(false)
+  const [chatInput, setChatInput] = useState('')
+  const chatRef = useRef(null)
 
-.card {
-  background: #fff;
-  border-radius: 12px;
-  border: 1px solid #eee;
-  padding: 16px;
-  margin-bottom: 12px;
-}
+  const [sessionType, setSessionType] = useState('Strength')
+  const [form, setForm] = useState({ date: todayStr(), name: '', duration: '', rpe: '', notes: '' })
+  const [exRows, setExRows] = useState([{ id: 1, category: 'Push', name: 'Bench press', sets: '', reps: '', kg: '', rpe: '' }])
+  const [cardioRows, setCardioRows] = useState([{ id: 1, type: 'Treadmill', duration: '', distance: '', hr: '' }])
+  const [pilatesFocus, setPilatesFocus] = useState('Full body')
 
-.sectionLabel {
-  font-size: 11px;
-  color: #999;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 12px;
-}
+  const [reflectSession, setReflectSession] = useState(null)
+  const [reflectForm, setReflectForm] = useState({ energy: 3, sleep: 3, stress: 3, notes: '' })
 
-.fieldLabel {
-  font-size: 12px;
-  color: #666;
-  margin-bottom: 4px;
-  display: block;
-}
+  useEffect(() => { loadAll() }, [])
+  useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }, [chatHistory, chatLoading])
 
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-.grid4 { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; }
+  async function loadAll() {
+    setLoading(true)
+    try {
+      const [s, e, c, r, p] = await Promise.all([
+        api('getSessions'), api('getExercises'), api('getCardio'),
+        api('getReflections'), api('getProfile'),
+      ])
+      if (s.sessions) setSessions(s.sessions)
+      if (e.exercises) setExercises(e.exercises)
+      if (c.cardio) setCardio(c.cardio)
+      if (r.reflections) setReflections(r.reflections)
+      if (p.profile) setProfile({ ...DEFAULT_PROFILE, ...p.profile })
+    } catch (e) { console.error(e) }
+    setLoading(false)
+  }
 
-.btnPrimary {
-  background: #111;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 11px 20px;
-  font-size: 14px;
-  font-weight: 600;
-  transition: opacity 0.15s;
-}
-.btnPrimary:disabled { opacity: 0.5; }
+  function addExRow() {
+    setExRows(rows => [...rows, { id: Date.now(), category: 'Push', name: 'Bench press', sets: '', reps: '', kg: '', rpe: '' }])
+  }
 
-.btnSecondary {
-  background: #f3f4f6;
-  color: #111;
-  border: none;
-  border-radius: 8px;
-  padding: 9px 16px;
-  font-size: 13px;
-  font-weight: 500;
-}
+  function updateExRow(id, field, value) {
+    setExRows(rows => rows.map(r => {
+      if (r.id !== id) return r
+      const updated = { ...r, [field]: value }
+      if (field === 'category') updated.name = EXERCISES[value]?.[0] || ''
+      return updated
+    }))
+  }
 
-.btnGhost {
-  background: none;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 7px 12px;
-  font-size: 12px;
-  color: #555;
-  transition: background 0.15s;
-}
-.btnGhost:hover { background: #f9fafb; }
+  function addCardioRow() {
+    setCardioRows(rows => [...rows, { id: Date.now(), type: 'Treadmill', duration: '', distance: '', hr: '' }])
+  }
 
-.btnDanger {
-  background: none;
-  border: 1px solid #fecaca;
-  border-radius: 8px;
-  padding: 7px 12px;
-  font-size: 12px;
-  color: #dc2626;
-}
+  function updateCardioRow(id, field, value) {
+    setCardioRows(rows => rows.map(r => r.id === id ? { ...r, [field]: value } : r))
+  }
 
-.statCard {
-  background: #f9fafb;
-  border-radius: 8px;
-  padding: 12px 8px;
-  text-align: center;
-}
-.statNum { font-size: 22px; font-weight: 700; color: #111; }
-.statLabel { font-size: 11px; color: #888; margin-top: 3px; }
+  async function saveSession() {
+    if (!form.duration) { alert('Please enter duration.'); return }
+    setSyncing(true)
+    const sid = Date.now().toString()
+    const notes = sessionType === 'Pilates'
+      ? `Focus: ${pilatesFocus}${form.notes ? ' — ' + form.notes : ''}`
+      : form.notes
+    const session = { id: sid, ...form, notes, duration: +form.duration, type: sessionType }
+    try {
+      await api('saveSession', { session })
+      const newEx = []
+      const newCardio = []
 
-.historyItem {
-  padding: 12px 0;
-  border-bottom: 1px solid #f3f4f6;
-}
-.historyItem:last-child { border-bottom: none; }
+      if (sessionType === 'Strength' || sessionType === 'Mixed') {
+        for (const row of exRows) {
+          if (row.name && row.sets) {
+            const ex = { sessionId: sid, date: form.date, category: row.category, name: row.name, sets: +row.sets, reps: +row.reps || 0, kg: +row.kg || 0, rpe: row.rpe || '' }
+            await api('saveExercise', { exercise: ex })
+            newEx.push(ex)
+          }
+        }
+      }
 
-.sliderRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-.sliderLabel { font-size: 12px; color: #666; width: 52px; flex-shrink: 0; }
-.sliderVal { font-size: 13px; font-weight: 600; color: #111; width: 18px; text-align: right; flex-shrink: 0; }
-.sliderRow input[type=range] { flex: 1; }
+      if (sessionType === 'Cardio' || sessionType === 'Mixed') {
+        for (const row of cardioRows) {
+          if (row.type && row.duration) {
+            const c = { sessionId: sid, date: form.date, type: row.type, duration: +row.duration, distance: row.distance || '', hr: row.hr || '' }
+            await api('saveCardio', { cardio: c })
+            newCardio.push(c)
+          }
+        }
+      }
 
-.rowBlock {
-  background: #f9fafb;
-  border: 1px solid #eee;
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 8px;
-}
+      setSessions(s => [session, ...s])
+      setExercises(e => [...e, ...newEx])
+      setCardio(c => [...c, ...newCardio])
+      setForm({ date: todayStr(), name: '', duration: '', rpe: '', notes: '' })
+      setExRows([{ id: 1, category: 'Push', name: 'Bench press', sets: '', reps: '', kg: '', rpe: '' }])
+      setCardioRows([{ id: 1, type: 'Treadmill', duration: '', distance: '', hr: '' }])
+      setPilatesFocus('Full body')
+      setTab('history')
+    } catch (e) { alert('Error saving. Please try again.') }
+    setSyncing(false)
+  }
 
-.rowBlockHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
+  async function saveReflection() {
+    if (!reflectSession) return
+    const reflection = { sessionId: reflectSession.id, date: reflectSession.date, ...reflectForm }
+    await api('saveReflection', { reflection })
+    setReflections(r => [...r, reflection])
+    setReflectSession(null)
+    setReflectForm({ energy: 3, sleep: 3, stress: 3, notes: '' })
+    alert('Reflection saved!')
+  }
 
-.tag {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 600;
-}
+  function buildContext() {
+    const sessionLines = sessions.slice(0, 30).map(s => {
+      const exs = exercises.filter(e => e.sessionId === s.id)
+      const cars = cardio.filter(c => c.sessionId === s.id)
+      const ref = reflections.find(r => r.sessionId === s.id)
+      const exStr = exs.map(e => `${e.name} (${e.category}) ${e.sets}x${e.reps}${e.kg ? ' @' + e.kg + 'kg' : ''}${e.rpe ? ' RPE' + e.rpe : ''}`).join(', ')
+      const carStr = cars.map(c => `${c.type} ${c.duration}min${c.distance ? ' ' + c.distance + 'km' : ''}${c.hr ? ' ' + c.hr + 'bpm' : ''}`).join(', ')
+      const refStr = ref ? ` | Reflection: energy ${ref.energy}/5, sleep ${ref.sleep}/5, stress ${ref.stress}/5${ref.notes ? ' — ' + ref.notes : ''}` : ''
+      return `${s.date}: ${s.type}${s.name ? ' — ' + s.name : ''} (${s.duration}min, overall RPE ${s.rpe})${s.notes ? ' | ' + s.notes : ''}${exStr ? ' | Exercises: ' + exStr : ''}${carStr ? ' | Cardio: ' + carStr : ''}${refStr}`
+    }).join('\n')
 
-textarea {
-  width: 100%;
-  padding: 9px 12px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  font-size: 14px;
-  background: #fff;
-  color: #111;
-  outline: none;
-  resize: vertical;
-  font-family: inherit;
-  min-height: 80px;
-}
-textarea:focus { border-color: #111; }
+    const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+    const recentEx = exercises.filter(e => new Date(e.date + 'T12:00:00') >= sevenDaysAgo)
+    const fatigue = {}
+    recentEx.forEach(e => { fatigue[e.category] = (fatigue[e.category] || 0) + (e.sets || 0) })
+    const fatigueStr = Object.entries(fatigue).map(([k, v]) => `${k}: ${v} sets`).join(', ')
 
-@media (max-width: 480px) {
-  .grid4 { grid-template-columns: repeat(2, 1fr); }
-  .content { padding: 12px; }
+    const byExercise = {}
+    exercises.forEach(e => { if (!byExercise[e.name]) byExercise[e.name] = []; byExercise[e.name].push(e) })
+    const bests = Object.entries(byExercise).map(([name, sets]) => {
+      const withKg = sets.filter(s => s.kg > 0)
+      if (!withKg.length) return null
+      const best = withKg.reduce((a, b) => b.kg > a.kg ? b : a)
+      return `${name}: ${best.kg}kg × ${best.sets}×${best.reps}`
+    }).filter(Boolean).join(', ')
+
+    return { sessionLines, fatigueStr, bests }
+  }
+
+  async function sendChat(msg) {
+    const message = msg || chatInput.trim()
+    if (!message) return
+    setChatInput('')
+    const newHistory = [...chatHistory, { role: 'user', content: message }]
+    setChatHistory(newHistory)
+    setChatLoading(true)
+
+    const { sessionLines, fatigueStr, bests } = buildContext()
+
+    const systemPrompt = `You are Atlas, an experienced personal trainer and wellness coach. Warm but direct. You give specific, actionable advice grounded in your client's actual data.
+
+CLIENT PROFILE:
+- Age: ${profile.age}
+- Training background: ${profile.experience}
+- Injuries/limitations: ${profile.injuries}
+- Goals: ${profile.goals}
+${profile.notes ? '- Additional notes: ' + profile.notes : ''}
+
+TRAINING PHILOSOPHY FOR THIS CLIENT:
+- Healthspan and longevity are the primary lens, not performance or aesthetics
+- Consistency over intensity
+- Stress and recovery matter as much as training load
+- Left shoulder needs regular stability work — build in face pulls, band work or similar
+- Lower back responds well to pilates and core work
+- Balance push/pull/legs/core across the week
+- Pilates sessions often run at high RPE and can leave DOMS in the focus area — account for that when planning the next session
+
+RECENT TRAINING DATA (last 30 sessions):
+${sessionLines || 'No sessions logged yet.'}
+
+MUSCLE GROUP LOAD — LAST 7 DAYS:
+${fatigueStr || 'No recent data.'}
+
+PERSONAL BESTS:
+${bests || 'None recorded yet.'}
+
+RESPONSE GUIDELINES:
+- When planning a session or week, ask about energy, sleep and stress if the client hasn't already told you
+- Reference their actual data: specific exercises, weights, dates
+- For programme planning give specific exercises, sets, reps and weight suggestions based on their logged bests
+- Keep responses concise unless a detailed plan is requested
+- Plain text only, no markdown
+- You are not a medical professional — if something sounds like an injury rather than normal soreness, say so and suggest they get it looked at`
+
+    try {
+      const res = await fetch('/api/coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: newHistory.map(m => ({ role: m.role, content: m.content })), systemPrompt })
+      })
+      const data = await res.json()
+      setChatHistory(h => [...h, { role: 'assistant', content: data.content || 'Something went wrong.' }])
+    } catch {
+      setChatHistory(h => [...h, { role: 'assistant', content: 'Error — please try again.' }])
+    }
+    setChatLoading(false)
+  }
+
+  const totalMins = sessions.reduce((a, s) => a + (+s.duration || 0), 0)
+  const totalHrs = totalMins >= 60 ? `${Math.floor(totalMins / 60)}h ${totalMins % 60}m` : `${totalMins}m`
+  const now = new Date()
+  const mon = new Date(now); mon.setDate(now.getDate() - now.getDay() + 1); mon.setHours(0, 0, 0, 0)
+  const thisWeek = sessions.filter(s => new Date(s.date + 'T12:00:00') >= mon).length
+  const rpes = sessions.filter(s => s.rpe).map(s => +s.rpe)
+  const avgRpe = rpes.length ? (rpes.reduce((a, b) => a + b, 0) / rpes.length).toFixed(1) : '—'
+
+  const byEx = {}
+  exercises.forEach(e => { if (!byEx[e.name]) byEx[e.name] = []; byEx[e.name].push(e) })
+
+  const weeks = []
+  for (let i = 7; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i * 7)
+    const s = new Date(d); s.setDate(d.getDate() - d.getDay() + 1); s.setHours(0, 0, 0, 0)
+    const e = new Date(s); e.setDate(s.getDate() + 7)
+    const count = sessions.filter(w => { const wd = new Date(w.date + 'T12:00:00'); return wd >= s && wd < e }).length
+    weeks.push({ count, label: s.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) })
+  }
+  const maxWeek = Math.max(...weeks.map(w => w.count), 1)
+
+  if (loading) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: '#888', fontSize: 14 }}>
+      Loading…
+    </div>
+  )
+
+  return (
+    <div className={styles.app}>
+      <div className={styles.header}>
+        <div>
+          <div className={styles.logo}>Fitness Tracker</div>
+          <div className={styles.sublogo}>{sessions.length} sessions logged</div>
+        </div>
+        {syncing && <div style={{ fontSize: 12, color: '#888' }}>Saving…</div>}
+      </div>
+
+      <div className={styles.nav}>
+        {['log', 'history', 'progress', 'reflect', 'atlas', 'profile'].map(t => (
+          <button key={t} className={`${styles.navBtn} ${tab === t ? styles.navBtnActive : ''}`} onClick={() => setTab(t)}>
+            {t.charAt(0).toUpperCase() + t.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      <div className={styles.content}>
+
+        {tab === 'log' && (
+          <div>
+            <div className={styles.card}>
+              <div className={styles.sectionLabel}>Session</div>
+              <div className={styles.grid2} style={{ marginBottom: 10 }}>
+                <div><label className={styles.fieldLabel}>Date</label><input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} /></div>
+                <div>
+                  <label className={styles.fieldLabel}>Type</label>
+                  <select value={sessionType} onChange={e => setSessionType(e.target.value)}>
+                    {SESSION_TYPES.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label className={styles.fieldLabel}>Session name (optional)</label>
+                <input type="text" placeholder="e.g. Upper body, Morning session…" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+              <div className={styles.grid2} style={{ marginBottom: 10 }}>
+                <div><label className={styles.fieldLabel}>Total duration (min)</label><input type="number" placeholder="60" min="1" value={form.duration} onChange={e => setForm(f => ({ ...f, duration: e.target.value }))} /></div>
+                <div><label className={styles.fieldLabel}>Overall RPE (1–10)</label><input type="number" placeholder="7" min="1" max="10" value={form.rpe} onChange={e => setForm(f => ({ ...f, rpe: e.target.value }))} /></div>
+              </div>
+              <div><label className={styles.fieldLabel}>Session notes</label><input type="text" placeholder="How you felt, anything notable…" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} /></div>
+            </div>
+
+            {sessionType === 'Pilates' && (
+              <div className={styles.card}>
+                <div className={styles.sectionLabel}>Pilates detail</div>
+                <div>
+                  <label className={styles.fieldLabel}>Focus area</label>
+                  <select value={pilatesFocus} onChange={e => setPilatesFocus(e.target.value)}>
+                    {PILATES_FOCUS.map(f => <option key={f}>{f}</option>)}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {(sessionType === 'Strength' || sessionType === 'Mixed') && (
+              <div className={styles.card}>
+                <div className={styles.sectionLabel}>Exercises</div>
+                {exRows.map(row => (
+                  <div key={row.id} className={styles.rowBlock}>
+                    <div className={styles.rowBlockHeader}>
+                      <span style={{ background: BADGE[row.category].bg, color: BADGE[row.category].color, padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>{row.category}</span>
+                      {exRows.length > 1 && <button onClick={() => setExRows(r => r.filter(x => x.id !== row.id))} style={{ background: 'none', border: 'none', color: '#bbb', fontSize: 18, cursor: 'pointer' }}>×</button>}
+                    </div>
+                    <div className={styles.grid2} style={{ marginBottom: 8 }}>
+                      <div>
+                        <label className={styles.fieldLabel}>Category</label>
+                        <select value={row.category} onChange={e => updateExRow(row.id, 'category', e.target.value)}>
+                          {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={styles.fieldLabel}>Exercise</label>
+                        <select value={row.name} onChange={e => updateExRow(row.id, 'name', e.target.value)}>
+                          {(EXERCISES[row.category] || []).map(ex => <option key={ex}>{ex}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
+                      <div><label className={styles.fieldLabel}>Sets</label><input type="number" placeholder="3" min="1" value={row.sets} onChange={e => updateExRow(row.id, 'sets', e.target.value)} /></div>
+                      <div><label className={styles.fieldLabel}>Reps</label><input type="number" placeholder="10" min="1" value={row.reps} onChange={e => updateExRow(row.id, 'reps', e.target.value)} /></div>
+                      <div><label className={styles.fieldLabel}>kg</label><input type="number" placeholder="0" min="0" step="0.5" value={row.kg} onChange={e => updateExRow(row.id, 'kg', e.target.value)} /></div>
+                      <div><label className={styles.fieldLabel}>RPE</label><input type="number" placeholder="7" min="1" max="10" value={row.rpe} onChange={e => updateExRow(row.id, 'rpe', e.target.value)} /></div>
+                    </div>
+                  </div>
+                ))}
+                <button className={styles.btnGhost} onClick={addExRow} style={{ marginTop: 4 }}>+ Add exercise</button>
+              </div>
+            )}
+
+            {(sessionType === 'Cardio' || sessionType === 'Mixed') && (
+              <div className={styles.card}>
+                <div className={styles.sectionLabel}>Cardio</div>
+                {cardioRows.map(row => (
+                  <div key={row.id} className={styles.rowBlock}>
+                    <div className={styles.rowBlockHeader}>
+                      <span style={{ fontSize: 13, fontWeight: 500 }}>{row.type}</span>
+                      {cardioRows.length > 1 && <button onClick={() => setCardioRows(r => r.filter(x => x.id !== row.id))} style={{ background: 'none', border: 'none', color: '#bbb', fontSize: 18, cursor: 'pointer' }}>×</button>}
+                    </div>
+                    <div className={styles.grid2} style={{ marginBottom: 8 }}>
+                      <div>
+                        <label className={styles.fieldLabel}>Type</label>
+                        <select value={row.type} onChange={e => updateCardioRow(row.id, 'type', e.target.value)}>
+                          {CARDIO_TYPES.map(t => <option key={t}>{t}</option>)}
+                        </select>
+                      </div>
+                      <div><label className={styles.fieldLabel}>Duration (min)</label><input type="number" placeholder="30" min="1" value={row.duration} onChange={e => updateCardioRow(row.id, 'duration', e.target.value)} /></div>
+                    </div>
+                    <div className={styles.grid2}>
+                      <div><label className={styles.fieldLabel}>Distance (km)</label><input type="number" placeholder="5.0" step="0.1" value={row.distance} onChange={e => updateCardioRow(row.id, 'distance', e.target.value)} /></div>
+                      <div><label className={styles.fieldLabel}>Avg HR (bpm)</label><input type="number" placeholder="135" value={row.hr} onChange={e => updateCardioRow(row.id, 'hr', e.target.value)} /></div>
+                    </div>
+                  </div>
+                ))}
+                <button className={styles.btnGhost} onClick={addCardioRow} style={{ marginTop: 4 }}>+ Add cardio block</button>
+              </div>
+            )}
+
+            <button className={styles.btnPrimary} style={{ width: '100%' }} onClick={saveSession} disabled={syncing}>
+              {syncing ? 'Saving…' : 'Save session'}
+            </button>
+          </div>
+        )}
+
+        {tab === 'history' && (
+          <div className={styles.card}>
+            <div className={styles.sectionLabel}>All sessions</div>
+            {sessions.length === 0 ? (
+              <p style={{ color: '#888', textAlign: 'center', padding: '30px 0', fontSize: 14 }}>No sessions yet.</p>
+            ) : sessions.map(s => {
+              const exs = exercises.filter(e => e.sessionId === s.id)
+              const cars = cardio.filter(c => c.sessionId === s.id)
+              const ref = reflections.find(r => r.sessionId === s.id)
+              const bc = BADGE[s.type] || BADGE.Mixed
+              return (
+                <div key={s.id} className={styles.historyItem}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
+                        <span style={{ background: bc.bg, color: bc.color, padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>{s.type}</span>
+                        {s.name && <span style={{ fontSize: 13, fontWeight: 500 }}>{s.name}</span>}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#666' }}>
+                        {fmtDate(s.date)} · {s.duration}min
+                        {s.rpe && <span style={{ marginLeft: 6 }}><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: rpeColor(s.rpe), marginRight: 3, verticalAlign: 'middle' }}></span>RPE {s.rpe}</span>}
+                      </div>
+                      {s.notes && <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{s.notes}</div>}
+                    </div>
+                    <button className={styles.btnGhost} style={{ fontSize: 11, padding: '4px 10px', marginLeft: 8 }} onClick={() => { setReflectSession(s); if (ref) setReflectForm({ energy: ref.energy, sleep: ref.sleep, stress: ref.stress, notes: ref.notes }); setTab('reflect') }}>
+                      {ref ? '✓ Reflected' : 'Reflect'}
+                    </button>
+                  </div>
+                  {exs.length > 0 && (
+                    <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {exs.map((e, i) => (
+                        <span key={i} style={{ fontSize: 11, background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 4, padding: '2px 7px', color: '#555' }}>
+                          {e.name}{e.sets ? ` ${e.sets}×${e.reps}` : ''}{e.kg ? ` @ ${e.kg}kg` : ''}{e.rpe ? ` RPE${e.rpe}` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {cars.length > 0 && (
+                    <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {cars.map((c, i) => (
+                        <span key={i} style={{ fontSize: 11, background: '#ecfdf5', border: '1px solid #d1fae5', borderRadius: 4, padding: '2px 7px', color: '#065f46' }}>
+                          {c.type} {c.duration}min{c.distance ? ' · ' + c.distance + 'km' : ''}{c.hr ? ' · ' + c.hr + 'bpm' : ''}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {tab === 'progress' && (
+          <div>
+            <div className={styles.grid4} style={{ marginBottom: 12 }}>
+              {[{ num: sessions.length, label: 'Sessions' }, { num: thisWeek, label: 'This week' }, { num: totalHrs, label: 'Total time' }, { num: avgRpe, label: 'Avg RPE' }].map(s => (
+                <div key={s.label} className={styles.statCard}>
+                  <div className={styles.statNum}>{s.num}</div>
+                  <div className={styles.statLabel}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className={styles.card}>
+              <div className={styles.sectionLabel}>8-week activity</div>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 5, height: 72, marginBottom: 6 }}>
+                {weeks.map((w, i) => (
+                  <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+                    <div style={{ background: '#111', opacity: w.count ? 0.15 + (w.count / maxWeek) * 0.75 : 0.07, borderRadius: '3px 3px 0 0', height: `${Math.max((w.count / maxWeek) * 100, 5)}%` }}></div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 5 }}>
+                {weeks.map((w, i) => (
+                  <div key={i} style={{ flex: 1, fontSize: 10, color: '#aaa', textAlign: 'center', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                    {i === 7 ? 'Now' : w.label.split(' ')[0]}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className={styles.card}>
+              <div className={styles.sectionLabel}>Strength progress</div>
+              {Object.keys(byEx).length === 0 ? (
+                <p style={{ color: '#888', fontSize: 13 }}>Log some strength sessions to see progress.</p>
+              ) : Object.entries(byEx).sort((a, b) => b[1].length - a[1].length).map(([name, sets]) => {
+                const withKg = sets.filter(s => s.kg > 0)
+                const best = withKg.length ? withKg.reduce((a, b) => b.kg > a.kg ? b : a) : null
+                const trend = withKg.length >= 2 ? (withKg[withKg.length - 1].kg - withKg[0].kg) : null
+                return (
+                  <div key={name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '9px 0', borderBottom: '1px solid #f0f0f0', fontSize: 13 }}>
+                    <span style={{ fontWeight: 500 }}>{name}</span>
+                    <span style={{ color: '#888', fontSize: 12 }}>
+                      {sets.length} sets{best ? ` · best ${best.kg}kg × ${best.sets}×${best.reps}` : ''}
+                      {trend !== null && trend !== 0 && <span style={{ color: trend > 0 ? '#16a34a' : '#dc2626', marginLeft: 5 }}>{trend > 0 ? '+' : ''}{trend}kg</span>}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {tab === 'reflect' && (
+          <div className={styles.card}>
+            <div className={styles.sectionLabel}>Session reflection</div>
+            {!reflectSession ? (
+              <div>
+                <p style={{ fontSize: 13, color: '#888', marginBottom: 14 }}>Select a session to reflect on:</p>
+                {sessions.length === 0 && <p style={{ fontSize: 13, color: '#aaa' }}>No sessions logged yet.</p>}
+                {sessions.slice(0, 10).map(s => {
+                  const ref = reflections.find(r => r.sessionId === s.id)
+                  return (
+                    <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f3f4f6' }}>
+                      <div>
+                        <span style={{ fontSize: 13, fontWeight: 500 }}>{s.name || s.type}</span>
+                        <span style={{ fontSize: 12, color: '#888', marginLeft: 8 }}>{fmtDate(s.date)}</span>
+                      </div>
+                      <button className={ref ? styles.btnSecondary : styles.btnGhost} style={{ fontSize: 12 }} onClick={() => { setReflectSession(s); if (ref) setReflectForm({ energy: ref.energy, sleep: ref.sleep, stress: ref.stress, notes: ref.notes }) }}>
+                        {ref ? '✓ Edit' : 'Add'}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div>
+                <div style={{ marginBottom: 14 }}>
+                  <span style={{ fontSize: 14, fontWeight: 500 }}>{reflectSession.name || reflectSession.type}</span>
+                  <span style={{ fontSize: 12, color: '#888', marginLeft: 8 }}>{fmtDate(reflectSession.date)}</span>
+                </div>
+                <Slider label="Energy" value={reflectForm.energy} onChange={v => setReflectForm(f => ({ ...f, energy: v }))} />
+                <Slider label="Sleep" value={reflectForm.sleep} onChange={v => setReflectForm(f => ({ ...f, sleep: v }))} />
+                <Slider label="Stress" value={reflectForm.stress} onChange={v => setReflectForm(f => ({ ...f, stress: v }))} />
+                <div style={{ marginTop: 10, marginBottom: 14 }}>
+                  <label className={styles.fieldLabel}>Notes — DOMS, how you felt, anything notable</label>
+                  <textarea value={reflectForm.notes} onChange={e => setReflectForm(f => ({ ...f, notes: e.target.value }))} placeholder="e.g. Legs sore from yesterday's pilates, felt strong on bench…" />
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className={styles.btnPrimary} onClick={saveReflection}>Save reflection</button>
+                  <button className={styles.btnGhost} onClick={() => { setReflectSession(null); setReflectForm({ energy: 3, sleep: 3, stress: 3, notes: '' }) }}>Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'atlas' && (
+          <div className={styles.card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div className={styles.sectionLabel} style={{ margin: 0 }}>Atlas — your coach</div>
+              {chatHistory.length > 0 && <button className={styles.btnGhost} style={{ fontSize: 11 }} onClick={() => setChatHistory([])}>Clear</button>}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 14 }}>
+              {[
+                ['Plan my week', 'Hey Atlas, help me plan my training this week.'],
+                ['Recovery check', 'How is my recovery looking based on my recent sessions?'],
+                ['Strength progress', 'How is my strength progressing and where should I push the weight?'],
+                ['Next session', 'What should I focus on in my next session?'],
+                ['Consistency', 'How consistent have I been and am I on track for my health goals?'],
+              ].map(([label, msg]) => (
+                <button key={label} className={styles.btnGhost} onClick={() => sendChat(msg)}>{label}</button>
+              ))}
+            </div>
+            <div ref={chatRef} style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 420, overflowY: 'auto', marginBottom: 12 }}>
+              {chatHistory.length === 0 && (
+                <p style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
+                  Hey — I&apos;m Atlas. Tell me how you&apos;re feeling and what you&apos;ve got time for, and I&apos;ll help you train smart.
+                </p>
+              )}
+              {chatHistory.map((m, i) => (
+                <div key={i} style={{
+                  padding: '10px 14px', borderRadius: 12, fontSize: 13, lineHeight: 1.6,
+                  maxWidth: '90%', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                  background: m.role === 'user' ? '#f3f4f6' : '#eff6ff',
+                  color: m.role === 'user' ? '#111' : '#1e3a5f',
+                  alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
+                  borderBottomRightRadius: m.role === 'user' ? 4 : 12,
+                  borderBottomLeftRadius: m.role === 'user' ? 12 : 4,
+                }}>
+                  {m.content}
+                </div>
+              ))}
+              {chatLoading && (
+                <div style={{ padding: '10px 14px', borderRadius: 12, fontSize: 13, background: '#f9fafb', color: '#aaa', alignSelf: 'flex-start', fontStyle: 'italic' }}>
+                  Atlas is thinking…
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input type="text" placeholder="Talk to Atlas…" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendChat()} style={{ flex: 1 }} />
+              <button className={styles.btnPrimary} onClick={() => sendChat()} disabled={chatLoading}>Send</button>
+            </div>
+          </div>
+        )}
+
+        {tab === 'profile' && (
+          <div className={styles.card}>
+            <div className={styles.sectionLabel}>Your profile</div>
+            <p style={{ fontSize: 12, color: '#888', marginBottom: 16, lineHeight: 1.6 }}>
+              This is what Atlas knows about you. Update it any time — it&apos;s included in every conversation.
+            </p>
+            <div style={{ marginBottom: 12 }}>
+              <label className={styles.fieldLabel}>Age</label>
+              <input type="number" value={profile.age} onChange={e => setProfile(p => ({ ...p, age: e.target.value }))} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label className={styles.fieldLabel}>Training background</label>
+              <textarea value={profile.experience} onChange={e => setProfile(p => ({ ...p, experience: e.target.value }))} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label className={styles.fieldLabel}>Injuries / limitations</label>
+              <textarea value={profile.injuries} onChange={e => setProfile(p => ({ ...p, injuries: e.target.value }))} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label className={styles.fieldLabel}>Goals</label>
+              <textarea value={profile.goals} onChange={e => setProfile(p => ({ ...p, goals: e.target.value }))} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label className={styles.fieldLabel}>Additional notes for Atlas</label>
+              <textarea placeholder="Anything else Atlas should know…" value={profile.notes} onChange={e => setProfile(p => ({ ...p, notes: e.target.value }))} />
+            </div>
+            <button className={styles.btnPrimary} onClick={async () => { await api('saveProfile', { profile }); alert('Profile saved!') }}>
+              Save profile
+            </button>
+          </div>
+        )}
+
+      </div>
+    </div>
+  )
 }
