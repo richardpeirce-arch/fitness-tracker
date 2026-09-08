@@ -4,12 +4,12 @@ import styles from './page.module.css'
 
 const EXERCISES = {
   Push: ['Arnold press','Bench press','Cable fly','Chest fly','Chest press (machine)','Dumbbell press','Incline bench press','Incline dumbbell press','Lateral raise','Overhead press','Pushups','Shoulder press','Tricep dips','Tricep pushdown','Overhead tricep extension','Front raise'],
-  Pull: ['Barbell row','Bicep curl','Cable row','Chin-up','Dumbbell row','Face pull','Hammer curl','Incline curl','Inverted row','Lat pulldown','Preacher curl','Pull-up','Seated cable row','Single-arm row'],
+  Pull: ['Banded pull aparts','Barbell row','Bicep curl','Cable row','Chin-up','Draw a sword','Dumbbell row','Face pull','Hammer curl','Incline curl','Inverted row','Lat pulldown','Preacher curl','Pull-up','Seated cable row','Single-arm row'],
   Legs: ['Bulgarian split squat','Calf raise','Deadlift','Goblet squat','Glute bridge','Hip thrust','Leg curl','Leg extension','Leg press','Lunges','Romanian deadlift','Split squat','Squat','Step-up','Sumo deadlift'],
   Core: ['Ab wheel','Bird dog','Cable crunch','Dead bug','Dragon flag','Hanging knee raise','Hanging leg raise','L-sit','Pallof press','Plank','Russian twist','Side plank','Suitcase carry','Toes to bar','Woodchop'],
 }
 
-const CARDIO_TYPES = ['Treadmill','Bike','Rower','Cross trainer','Outdoor run','Outdoor cycle','Swimming','Other']
+const CARDIO_TYPES = ['Treadmill','Bike','Rower','Ski erg','Cross trainer','Outdoor run','Outdoor cycle','Swimming','Other']
 const PILATES_FOCUS = ['Full body','Core focus','Legs focus','Upper body focus','Glutes focus']
 const CATEGORIES = ['Push','Pull','Legs','Core']
 const SESSION_TYPES = ['Strength','Pilates','Cardio','Mixed']
