@@ -256,7 +256,10 @@ RESPONSE GUIDELINES:
       const data = await res.json()
       const fallback = data.content
         ? data.content
-        : `⚠️ ${data.detail || data.error || 'Something went wrong.'}${data.apiStatus ? ` [HTTP ${data.apiStatus}]` : ''} (keyPresent=${data.keyPresent}, keyPrefix=${data.keyPrefix})`
+        : `⚠️ ${data.detail || data.error || 'Something went wrong.'}`
+          + `${data.apiStatus ? ` [HTTP ${data.apiStatus}]` : ''}${data.errName ? ` <${data.errName}>` : ''}`
+          + ` | key: present=${data.keyPresent} prefix=${data.keyPrefix} len=${data.keyLength} sdk=${data.sdkVersion}`
+          + `${data.raw ? ` | raw=${data.raw}` : ''}`
       setChatHistory(h => [...h, { role: 'assistant', content: fallback }])
     } catch {
       setChatHistory(h => [...h, { role: 'assistant', content: 'Error — please try again.' }])

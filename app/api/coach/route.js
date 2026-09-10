@@ -1,8 +1,15 @@
 import Anthropic from '@anthropic-ai/sdk'
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const apiKey = process.env.ANTHROPIC_API_KEY
+const client = new Anthropic({ apiKey })
 
 export async function POST(request) {
+  const diag = {
+    keyPresent: Boolean(apiKey),
+    keyPrefix: apiKey ? apiKey.slice(0, 13) : null,
+    keyLength: apiKey ? apiKey.length : 0,
+    sdkVersion: Anthropic.VERSION || null,
+  }
   try {
     const { messages, systemPrompt } = await request.json()
 
@@ -13,15 +20,22 @@ export async function POST(request) {
       messages,
     })
 
-    return Response.json({ content: response.content[0].text })
+    const text = response?.content?.[0]?.text
+    if (!text) {
+      return Response.json(
+        { ...diag, error: 'No text in response', raw: JSON.stringify(response).slice(0, 900) },
+        { status: 502 }
+      )
+    }
+    return Response.json({ content: text })
   } catch (error) {
     console.error('Claude API error:', error)
     return Response.json({
+      ...diag,
       error: 'Failed to get response',
       detail: error?.message || String(error),
       apiStatus: error?.status ?? null,
-      keyPresent: Boolean(process.env.ANTHROPIC_API_KEY),
-      keyPrefix: process.env.ANTHROPIC_API_KEY?.slice(0, 13) ?? null,
+      errName: error?.name ?? null,
     }, { status: 500 })
   }
 }
