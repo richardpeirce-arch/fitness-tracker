@@ -16,6 +16,12 @@ export async function POST(request) {
     return Response.json({ content: response.content[0].text })
   } catch (error) {
     console.error('Claude API error:', error)
-    return Response.json({ error: 'Failed to get response' }, { status: 500 })
+    return Response.json({
+      error: 'Failed to get response',
+      detail: error?.message || String(error),
+      apiStatus: error?.status ?? null,
+      keyPresent: Boolean(process.env.ANTHROPIC_API_KEY),
+      keyPrefix: process.env.ANTHROPIC_API_KEY?.slice(0, 13) ?? null,
+    }, { status: 500 })
   }
 }

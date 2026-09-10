@@ -254,7 +254,10 @@ RESPONSE GUIDELINES:
         body: JSON.stringify({ messages: newHistory.map(m => ({ role: m.role, content: m.content })), systemPrompt })
       })
       const data = await res.json()
-      setChatHistory(h => [...h, { role: 'assistant', content: data.content || 'Something went wrong.' }])
+      const fallback = data.content
+        ? data.content
+        : `⚠️ ${data.detail || data.error || 'Something went wrong.'}${data.apiStatus ? ` [HTTP ${data.apiStatus}]` : ''} (keyPresent=${data.keyPresent}, keyPrefix=${data.keyPrefix})`
+      setChatHistory(h => [...h, { role: 'assistant', content: fallback }])
     } catch {
       setChatHistory(h => [...h, { role: 'assistant', content: 'Error — please try again.' }])
     }
