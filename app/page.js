@@ -3,9 +3,9 @@ import { useState, useEffect, useRef } from 'react'
 import styles from './page.module.css'
 
 const EXERCISES = {
-  Push: ['Arnold press','Bench press','Cable fly','Chest fly','Chest press (machine)','Dumbbell press','Incline bench press','Incline dumbbell press','Lateral raise','Overhead press','Pushups','Shoulder press','Tricep dips','Tricep pushdown','Overhead tricep extension','Front raise'],
-  Pull: ['Banded pull aparts','Barbell row','Bicep curl','Cable row','Chin-up','Draw a sword','Dumbbell row','Face pull','Hammer curl','Incline curl','Inverted row','Lat pulldown','Preacher curl','Pull-up','Seated cable row','Single-arm row'],
-  Legs: ['Bulgarian split squat','Calf raise','Deadlift','Goblet squat','Glute bridge','Hip thrust','Leg curl','Leg extension','Leg press','Lunges','Romanian deadlift','Split squat','Squat','Step-up','Sumo deadlift'],
+  Push: ['Arnold press','Bench press (DB)','Bench press (BB)','Cable fly','Chest fly (DB)','Chest fly (Machine)','Chest press (machine)','Dumbbell press','Incline bench press (DB)','Incline bench press (BB)','Incline dumbbell press','Lateral raise','Overhead press (DB)','Overhead press (BB)','Pushups','Shoulder press (DB)','Shoulder press (BB)','Tricep dips','Tricep pushdown','Overhead tricep extension (DB)','Overhead tricep extension (Cable)','Front raise'],
+  Pull: ['Banded pull aparts','Barbell row','Bicep curl (DB)','Bicep curl (BB)','Cable row','Chin-up','Draw a sword','Dumbbell row','Face pull','Hammer curl','Incline curl','Inverted row','Lat pulldown','Preacher curl (DB)','Preacher curl (BB)','Pull-up','Seated cable row','Single-arm row'],
+  Legs: ['Bulgarian split squat (DB)','Bulgarian split squat (BB)','Calf raise (DB)','Calf raise (Machine)','Deadlift (BB)','Deadlift (DB)','Goblet squat','Glute bridge (BB)','Glute bridge (DB)','Hip thrust (BB)','Hip thrust (DB)','Leg curl','Leg extension','Leg press','Lunges (DB)','Lunges (BB)','Romanian deadlift (BB)','Romanian deadlift (DB)','Split squat (DB)','Split squat (BB)','Squat (BB)','Squat (DB)','Step-up (DB)','Step-up (BB)','Sumo deadlift (BB)','Sumo deadlift (DB)'],
   Core: ['Ab wheel','Bird dog','Cable crunch','Dead bug','Dragon flag','Hanging knee raise','Hanging leg raise','L-sit','Pallof press','Plank','Russian twist','Side plank','Suitcase carry','Toes to bar','Woodchop'],
 }
 
