@@ -59,6 +59,20 @@ export async function POST(request) {
       return Response.json({ ok: true })
     }
 
+    if (action === 'updateSession') {
+      const s = body.session
+      const rows = await getRows(sheets, 'Sessions')
+      const rowIndex = rows.findIndex(r => r[0] === s.id)
+      if (rowIndex === -1) return Response.json({ error: 'Session not found' }, { status: 404 })
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `Sessions!A${rowIndex + 1}`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [[s.id, s.date, s.name || '', s.duration, s.rpe, s.notes || '', s.type || 'Strength']] },
+      })
+      return Response.json({ ok: true })
+    }
+
     if (action === 'getSessions') {
       const rows = await getRows(sheets, 'Sessions')
       const sessions = rows.map(r => ({

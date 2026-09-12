@@ -46,6 +46,22 @@ function api(action, data = {}) {
   }).then(r => r.json())
 }
 
+const ACTIVE_SESSION_KEY = 'ft_active_session'
+
+function getStoredActiveSession() {
+  try {
+    const raw = localStorage.getItem(ACTIVE_SESSION_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
+function setStoredActiveSession(session) {
+  try {
+    if (session) localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(session))
+    else localStorage.removeItem(ACTIVE_SESSION_KEY)
+  } catch {}
+}
+
 function Slider({ label, value, onChange }) {
   return (
     <div className={styles.sliderRow}>
@@ -72,14 +88,21 @@ export default function App() {
 
   const [sessionType, setSessionType] = useState('Strength')
   const [form, setForm] = useState({ date: todayStr(), name: '', duration: '', rpe: '', notes: '' })
-  const [exRows, setExRows] = useState([{ id: 1, category: 'Push', name: 'Bench press', sets: '', reps: '', kg: '', rpe: '' }])
-  const [cardioRows, setCardioRows] = useState([{ id: 1, type: 'Treadmill', duration: '', distance: '', hr: '', zone: CARDIO_ZONES[0], calories: '' }])
+  const [activeSession, setActiveSession] = useState(null)
+  const [exDraft, setExDraft] = useState({ category: 'Push', name: 'Bench press', sets: '', reps: '', kg: '', rpe: '' })
+  const [cardioDraft, setCardioDraft] = useState({ type: 'Treadmill', duration: '', distance: '', hr: '', zone: CARDIO_ZONES[0], calories: '' })
+  const [loggingEx, setLoggingEx] = useState(false)
+  const [loggingCardio, setLoggingCardio] = useState(false)
   const [pilatesFocus, setPilatesFocus] = useState('Full body')
 
   const [reflectSession, setReflectSession] = useState(null)
   const [reflectForm, setReflectForm] = useState({ energy: 3, sleep: 3, stress: 3, notes: '' })
 
-  useEffect(() => { loadAll() }, [])
+  useEffect(() => {
+    loadAll()
+    const stored = getStoredActiveSession()
+    if (stored) setActiveSession(stored)
+  }, [])
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }, [chatHistory, chatLoading])
 
   async function loadAll() {
@@ -98,69 +121,78 @@ export default function App() {
     setLoading(false)
   }
 
-  function addExRow() {
-    setExRows(rows => [...rows, { id: Date.now(), category: 'Push', name: 'Bench press', sets: '', reps: '', kg: '', rpe: '' }])
-  }
-
-  function updateExRow(id, field, value) {
-    setExRows(rows => rows.map(r => {
-      if (r.id !== id) return r
-      const updated = { ...r, [field]: value }
+  function updateExDraft(field, value) {
+    setExDraft(d => {
+      const updated = { ...d, [field]: value }
       if (field === 'category') updated.name = EXERCISES[value]?.[0] || ''
       return updated
-    }))
+    })
   }
 
-  function addCardioRow() {
-    setCardioRows(rows => [...rows, { id: Date.now(), type: 'Treadmill', duration: '', distance: '', hr: '', zone: CARDIO_ZONES[0], calories: '' }])
+  function updateCardioDraft(field, value) {
+    setCardioDraft(d => ({ ...d, [field]: value }))
   }
 
-  function updateCardioRow(id, field, value) {
-    setCardioRows(rows => rows.map(r => r.id === id ? { ...r, [field]: value } : r))
-  }
-
-  async function saveSession() {
-    if (!form.duration) { alert('Please enter duration.'); return }
+  async function startSession() {
     setSyncing(true)
     const sid = Date.now().toString()
-    const notes = sessionType === 'Pilates'
-      ? `Focus: ${pilatesFocus}${form.notes ? ' — ' + form.notes : ''}`
-      : form.notes
-    const session = { id: sid, ...form, notes, duration: +form.duration, type: sessionType }
+    const session = { id: sid, date: form.date, name: form.name, duration: 0, rpe: '', notes: '', type: sessionType }
     try {
       await api('saveSession', { session })
-      const newEx = []
-      const newCardio = []
-
-      if (sessionType === 'Strength' || sessionType === 'Mixed') {
-        for (const row of exRows) {
-          if (row.name && row.sets) {
-            const ex = { sessionId: sid, date: form.date, category: row.category, name: row.name, sets: +row.sets, reps: +row.reps || 0, kg: +row.kg || 0, rpe: row.rpe || '' }
-            await api('saveExercise', { exercise: ex })
-            newEx.push(ex)
-          }
-        }
-      }
-
-      if (sessionType === 'Cardio' || sessionType === 'Mixed') {
-        for (const row of cardioRows) {
-          if (row.type && row.duration) {
-            const c = { sessionId: sid, date: form.date, type: row.type, duration: +row.duration, distance: row.distance || '', hr: row.hr || '', zone: row.zone || '', calories: row.calories || '' }
-            await api('saveCardio', { cardio: c })
-            newCardio.push(c)
-          }
-        }
-      }
-
       setSessions(s => [session, ...s])
-      setExercises(e => [...e, ...newEx])
-      setCardio(c => [...c, ...newCardio])
+      const active = { id: sid, date: form.date, name: form.name, type: sessionType }
+      setActiveSession(active)
+      setStoredActiveSession(active)
+    } catch (e) { alert('Error starting session. Please try again.') }
+    setSyncing(false)
+  }
+
+  async function logExercise() {
+    if (!activeSession) return
+    if (!exDraft.name || !exDraft.sets) { alert('Please enter at least sets for the exercise.'); return }
+    setLoggingEx(true)
+    const ex = { sessionId: activeSession.id, date: activeSession.date, category: exDraft.category, name: exDraft.name, sets: +exDraft.sets, reps: +exDraft.reps || 0, kg: +exDraft.kg || 0, rpe: exDraft.rpe || '' }
+    try {
+      await api('saveExercise', { exercise: ex })
+      setExercises(e => [...e, ex])
+      setExDraft(d => ({ ...d, sets: '', reps: '', kg: '', rpe: '' }))
+    } catch (e) { alert('Error logging exercise. Please try again.') }
+    setLoggingEx(false)
+  }
+
+  async function logCardio() {
+    if (!activeSession) return
+    if (!cardioDraft.type || !cardioDraft.duration) { alert('Please enter a duration for the cardio block.'); return }
+    setLoggingCardio(true)
+    const c = { sessionId: activeSession.id, date: activeSession.date, type: cardioDraft.type, duration: +cardioDraft.duration, distance: cardioDraft.distance || '', hr: cardioDraft.hr || '', zone: cardioDraft.zone || '', calories: cardioDraft.calories || '' }
+    try {
+      await api('saveCardio', { cardio: c })
+      setCardio(cs => [...cs, c])
+      setCardioDraft(d => ({ ...d, duration: '', distance: '', hr: '', calories: '' }))
+    } catch (e) { alert('Error logging cardio. Please try again.') }
+    setLoggingCardio(false)
+  }
+
+  async function finishSession() {
+    if (!activeSession) return
+    if (!form.duration) { alert('Please enter duration.'); return }
+    setSyncing(true)
+    const notes = activeSession.type === 'Pilates'
+      ? `Focus: ${pilatesFocus}${form.notes ? ' — ' + form.notes : ''}`
+      : form.notes
+    const session = { id: activeSession.id, date: activeSession.date, name: activeSession.name, duration: +form.duration, rpe: form.rpe, notes, type: activeSession.type }
+    try {
+      await api('updateSession', { session })
+      setSessions(s => s.map(x => x.id === activeSession.id ? session : x))
+      setActiveSession(null)
+      setStoredActiveSession(null)
       setForm({ date: todayStr(), name: '', duration: '', rpe: '', notes: '' })
-      setExRows([{ id: 1, category: 'Push', name: 'Bench press', sets: '', reps: '', kg: '', rpe: '' }])
-      setCardioRows([{ id: 1, type: 'Treadmill', duration: '', distance: '', hr: '', zone: CARDIO_ZONES[0], calories: '' }])
+      setSessionType('Strength')
+      setExDraft({ category: 'Push', name: 'Bench press', sets: '', reps: '', kg: '', rpe: '' })
+      setCardioDraft({ type: 'Treadmill', duration: '', distance: '', hr: '', zone: CARDIO_ZONES[0], calories: '' })
       setPilatesFocus('Full body')
       setTab('history')
-    } catch (e) { alert('Error saving. Please try again.') }
+    } catch (e) { alert('Error finishing session. Please try again.') }
     setSyncing(false)
   }
 
@@ -311,115 +343,143 @@ RESPONSE GUIDELINES:
 
         {tab === 'log' && (
           <div>
-            <div className={styles.card}>
-              <div className={styles.sectionLabel}>Session</div>
-              <div className={styles.grid2} style={{ marginBottom: 10 }}>
-                <div><label className={styles.fieldLabel}>Date</label><input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} /></div>
-                <div>
-                  <label className={styles.fieldLabel}>Type</label>
-                  <select value={sessionType} onChange={e => setSessionType(e.target.value)}>
-                    {SESSION_TYPES.map(t => <option key={t}>{t}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <label className={styles.fieldLabel}>Session name (optional)</label>
-                <input type="text" placeholder="e.g. Upper body, Morning session…" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
-              </div>
-              <div className={styles.grid2} style={{ marginBottom: 10 }}>
-                <div><label className={styles.fieldLabel}>Total duration (min)</label><input type="number" placeholder="60" min="1" value={form.duration} onChange={e => setForm(f => ({ ...f, duration: e.target.value }))} /></div>
-                <div><label className={styles.fieldLabel}>Overall RPE (1–10)</label><input type="number" placeholder="7" min="1" max="10" value={form.rpe} onChange={e => setForm(f => ({ ...f, rpe: e.target.value }))} /></div>
-              </div>
-              <div><label className={styles.fieldLabel}>Session notes</label><input type="text" placeholder="How you felt, anything notable…" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} /></div>
-            </div>
-
-            {sessionType === 'Pilates' && (
+            {!activeSession ? (
               <div className={styles.card}>
-                <div className={styles.sectionLabel}>Pilates detail</div>
-                <div>
-                  <label className={styles.fieldLabel}>Focus area</label>
-                  <select value={pilatesFocus} onChange={e => setPilatesFocus(e.target.value)}>
-                    {PILATES_FOCUS.map(f => <option key={f}>{f}</option>)}
-                  </select>
+                <div className={styles.sectionLabel}>Start a session</div>
+                <div className={styles.grid2} style={{ marginBottom: 10 }}>
+                  <div><label className={styles.fieldLabel}>Date</label><input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} /></div>
+                  <div>
+                    <label className={styles.fieldLabel}>Type</label>
+                    <select value={sessionType} onChange={e => setSessionType(e.target.value)}>
+                      {SESSION_TYPES.map(t => <option key={t}>{t}</option>)}
+                    </select>
+                  </div>
                 </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label className={styles.fieldLabel}>Session name (optional)</label>
+                  <input type="text" placeholder="e.g. Upper body, Morning session…" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+                </div>
+                <button className={styles.btnPrimary} style={{ width: '100%' }} onClick={startSession} disabled={syncing}>
+                  {syncing ? 'Starting…' : 'Start session'}
+                </button>
               </div>
-            )}
-
-            {(sessionType === 'Strength' || sessionType === 'Mixed') && (
-              <div className={styles.card}>
-                <div className={styles.sectionLabel}>Exercises</div>
-                {exRows.map(row => (
-                  <div key={row.id} className={styles.rowBlock}>
-                    <div className={styles.rowBlockHeader}>
-                      <span style={{ background: BADGE[row.category].bg, color: BADGE[row.category].color, padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>{row.category}</span>
-                      {exRows.length > 1 && <button onClick={() => setExRows(r => r.filter(x => x.id !== row.id))} style={{ background: 'none', border: 'none', color: '#bbb', fontSize: 18, cursor: 'pointer' }}>×</button>}
+            ) : (
+              <div>
+                <div className={styles.card}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div className={styles.sectionLabel} style={{ margin: 0 }}>Session in progress</div>
+                      <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+                        {fmtDate(activeSession.date)}{activeSession.name ? ' · ' + activeSession.name : ''}
+                      </div>
                     </div>
+                    <span style={{ background: (BADGE[activeSession.type] || BADGE.Mixed).bg, color: (BADGE[activeSession.type] || BADGE.Mixed).color, padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>{activeSession.type}</span>
+                  </div>
+                </div>
+
+                {activeSession.type === 'Pilates' && (
+                  <div className={styles.card}>
+                    <div className={styles.sectionLabel}>Pilates detail</div>
+                    <div>
+                      <label className={styles.fieldLabel}>Focus area</label>
+                      <select value={pilatesFocus} onChange={e => setPilatesFocus(e.target.value)}>
+                        {PILATES_FOCUS.map(f => <option key={f}>{f}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {(activeSession.type === 'Strength' || activeSession.type === 'Mixed') && (
+                  <div className={styles.card}>
+                    <div className={styles.sectionLabel}>Log an exercise</div>
                     <div className={styles.grid2} style={{ marginBottom: 8 }}>
                       <div>
                         <label className={styles.fieldLabel}>Category</label>
-                        <select value={row.category} onChange={e => updateExRow(row.id, 'category', e.target.value)}>
+                        <select value={exDraft.category} onChange={e => updateExDraft('category', e.target.value)}>
                           {CATEGORIES.map(c => <option key={c}>{c}</option>)}
                         </select>
                       </div>
                       <div>
                         <label className={styles.fieldLabel}>Exercise</label>
-                        <select value={row.name} onChange={e => updateExRow(row.id, 'name', e.target.value)}>
-                          {(EXERCISES[row.category] || []).map(ex => <option key={ex}>{ex}</option>)}
+                        <select value={exDraft.name} onChange={e => updateExDraft('name', e.target.value)}>
+                          {(EXERCISES[exDraft.category] || []).map(ex => <option key={ex}>{ex}</option>)}
                         </select>
                       </div>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
-                      <div><label className={styles.fieldLabel}>Sets</label><input type="number" placeholder="3" min="1" value={row.sets} onChange={e => updateExRow(row.id, 'sets', e.target.value)} /></div>
-                      <div><label className={styles.fieldLabel}>Reps</label><input type="number" placeholder="10" min="1" value={row.reps} onChange={e => updateExRow(row.id, 'reps', e.target.value)} /></div>
-                      <div><label className={styles.fieldLabel}>kg</label><input type="number" placeholder="0" min="0" step="0.5" value={row.kg} onChange={e => updateExRow(row.id, 'kg', e.target.value)} /></div>
-                      <div><label className={styles.fieldLabel}>RPE</label><input type="number" placeholder="7" min="1" max="10" value={row.rpe} onChange={e => updateExRow(row.id, 'rpe', e.target.value)} /></div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
+                      <div><label className={styles.fieldLabel}>Sets</label><input type="number" placeholder="3" min="1" value={exDraft.sets} onChange={e => updateExDraft('sets', e.target.value)} /></div>
+                      <div><label className={styles.fieldLabel}>Reps</label><input type="number" placeholder="10" min="1" value={exDraft.reps} onChange={e => updateExDraft('reps', e.target.value)} /></div>
+                      <div><label className={styles.fieldLabel}>kg</label><input type="number" placeholder="0" min="0" step="0.5" value={exDraft.kg} onChange={e => updateExDraft('kg', e.target.value)} /></div>
+                      <div><label className={styles.fieldLabel}>RPE</label><input type="number" placeholder="7" min="1" max="10" value={exDraft.rpe} onChange={e => updateExDraft('rpe', e.target.value)} /></div>
                     </div>
+                    <button className={styles.btnPrimary} style={{ width: '100%' }} onClick={logExercise} disabled={loggingEx}>
+                      {loggingEx ? 'Logging…' : '+ Log exercise'}
+                    </button>
+                    {exercises.filter(e => e.sessionId === activeSession.id).length > 0 && (
+                      <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        {exercises.filter(e => e.sessionId === activeSession.id).map((e, i) => (
+                          <span key={i} style={{ fontSize: 11, background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 4, padding: '2px 7px', color: '#555' }}>
+                            {e.name}{e.sets ? ` ${e.sets}×${e.reps}` : ''}{e.kg ? ` @ ${e.kg}kg` : ''}{e.rpe ? ` RPE${e.rpe}` : ''}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ))}
-                <button className={styles.btnGhost} onClick={addExRow} style={{ marginTop: 4 }}>+ Add exercise</button>
-              </div>
-            )}
+                )}
 
-            {(sessionType === 'Cardio' || sessionType === 'Mixed') && (
-              <div className={styles.card}>
-                <div className={styles.sectionLabel}>Cardio</div>
-                {cardioRows.map(row => (
-                  <div key={row.id} className={styles.rowBlock}>
-                    <div className={styles.rowBlockHeader}>
-                      <span style={{ fontSize: 13, fontWeight: 500 }}>{row.type}</span>
-                      {cardioRows.length > 1 && <button onClick={() => setCardioRows(r => r.filter(x => x.id !== row.id))} style={{ background: 'none', border: 'none', color: '#bbb', fontSize: 18, cursor: 'pointer' }}>×</button>}
-                    </div>
+                {(activeSession.type === 'Cardio' || activeSession.type === 'Mixed') && (
+                  <div className={styles.card}>
+                    <div className={styles.sectionLabel}>Log cardio</div>
                     <div className={styles.grid2} style={{ marginBottom: 8 }}>
                       <div>
                         <label className={styles.fieldLabel}>Type</label>
-                        <select value={row.type} onChange={e => updateCardioRow(row.id, 'type', e.target.value)}>
+                        <select value={cardioDraft.type} onChange={e => updateCardioDraft('type', e.target.value)}>
                           {CARDIO_TYPES.map(t => <option key={t}>{t}</option>)}
                         </select>
                       </div>
-                      <div><label className={styles.fieldLabel}>Duration (min)</label><input type="number" placeholder="30" min="1" value={row.duration} onChange={e => updateCardioRow(row.id, 'duration', e.target.value)} /></div>
+                      <div><label className={styles.fieldLabel}>Duration (min)</label><input type="number" placeholder="30" min="1" value={cardioDraft.duration} onChange={e => updateCardioDraft('duration', e.target.value)} /></div>
                     </div>
                     <div className={styles.grid2} style={{ marginBottom: 8 }}>
-                      <div><label className={styles.fieldLabel}>Distance (km)</label><input type="number" placeholder="5.0" step="0.1" value={row.distance} onChange={e => updateCardioRow(row.id, 'distance', e.target.value)} /></div>
-                      <div><label className={styles.fieldLabel}>Avg HR (bpm)</label><input type="number" placeholder="135" value={row.hr} onChange={e => updateCardioRow(row.id, 'hr', e.target.value)} /></div>
+                      <div><label className={styles.fieldLabel}>Distance (km)</label><input type="number" placeholder="5.0" step="0.1" value={cardioDraft.distance} onChange={e => updateCardioDraft('distance', e.target.value)} /></div>
+                      <div><label className={styles.fieldLabel}>Avg HR (bpm)</label><input type="number" placeholder="135" value={cardioDraft.hr} onChange={e => updateCardioDraft('hr', e.target.value)} /></div>
                     </div>
-                    <div className={styles.grid2}>
+                    <div className={styles.grid2} style={{ marginBottom: 10 }}>
                       <div>
                         <label className={styles.fieldLabel}>Zone</label>
-                        <select value={row.zone} onChange={e => updateCardioRow(row.id, 'zone', e.target.value)}>
+                        <select value={cardioDraft.zone} onChange={e => updateCardioDraft('zone', e.target.value)}>
                           {CARDIO_ZONES.map(z => <option key={z}>{z}</option>)}
                         </select>
                       </div>
-                      <div><label className={styles.fieldLabel}>Calories</label><input type="number" placeholder="300" value={row.calories} onChange={e => updateCardioRow(row.id, 'calories', e.target.value)} /></div>
+                      <div><label className={styles.fieldLabel}>Calories</label><input type="number" placeholder="300" value={cardioDraft.calories} onChange={e => updateCardioDraft('calories', e.target.value)} /></div>
                     </div>
+                    <button className={styles.btnPrimary} style={{ width: '100%' }} onClick={logCardio} disabled={loggingCardio}>
+                      {loggingCardio ? 'Logging…' : '+ Log cardio block'}
+                    </button>
+                    {cardio.filter(c => c.sessionId === activeSession.id).length > 0 && (
+                      <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        {cardio.filter(c => c.sessionId === activeSession.id).map((c, i) => (
+                          <span key={i} style={{ fontSize: 11, background: '#ecfdf5', border: '1px solid #d1fae5', borderRadius: 4, padding: '2px 7px', color: '#065f46' }}>
+                            {c.type} {c.duration}min{c.distance ? ' · ' + c.distance + 'km' : ''}{c.hr ? ' · ' + c.hr + 'bpm' : ''}{c.zone ? ' · ' + c.zone : ''}{c.calories ? ' · ' + c.calories + ' cal' : ''}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ))}
-                <button className={styles.btnGhost} onClick={addCardioRow} style={{ marginTop: 4 }}>+ Add cardio block</button>
+                )}
+
+                <div className={styles.card}>
+                  <div className={styles.sectionLabel}>Finish session</div>
+                  <div className={styles.grid2} style={{ marginBottom: 10 }}>
+                    <div><label className={styles.fieldLabel}>Total duration (min)</label><input type="number" placeholder="60" min="1" value={form.duration} onChange={e => setForm(f => ({ ...f, duration: e.target.value }))} /></div>
+                    <div><label className={styles.fieldLabel}>Overall RPE (1–10)</label><input type="number" placeholder="7" min="1" max="10" value={form.rpe} onChange={e => setForm(f => ({ ...f, rpe: e.target.value }))} /></div>
+                  </div>
+                  <div style={{ marginBottom: 14 }}><label className={styles.fieldLabel}>Session notes</label><input type="text" placeholder="How you felt, anything notable…" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} /></div>
+                  <button className={styles.btnPrimary} style={{ width: '100%' }} onClick={finishSession} disabled={syncing}>
+                    {syncing ? 'Finishing…' : 'Finish session'}
+                  </button>
+                </div>
               </div>
             )}
-
-            <button className={styles.btnPrimary} style={{ width: '100%' }} onClick={saveSession} disabled={syncing}>
-              {syncing ? 'Saving…' : 'Save session'}
-            </button>
           </div>
         )}
 
