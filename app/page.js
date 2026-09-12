@@ -10,6 +10,7 @@ const EXERCISES = {
 }
 
 const CARDIO_TYPES = ['Treadmill','Bike','Rower','Ski erg','Cross trainer','Outdoor run','Outdoor cycle','Swimming','Other']
+const CARDIO_ZONES = ['Zone 1 — Recovery','Zone 2 — Easy / fat-burning','Zone 3 — Moderate / steady','Zone 4 — Hard / threshold','Zone 5 — Max / intervals','Mixed / circuit']
 const PILATES_FOCUS = ['Full body','Core focus','Legs focus','Upper body focus','Glutes focus']
 const CATEGORIES = ['Push','Pull','Legs','Core']
 const SESSION_TYPES = ['Strength','Pilates','Cardio','Mixed']
@@ -72,7 +73,7 @@ export default function App() {
   const [sessionType, setSessionType] = useState('Strength')
   const [form, setForm] = useState({ date: todayStr(), name: '', duration: '', rpe: '', notes: '' })
   const [exRows, setExRows] = useState([{ id: 1, category: 'Push', name: 'Bench press', sets: '', reps: '', kg: '', rpe: '' }])
-  const [cardioRows, setCardioRows] = useState([{ id: 1, type: 'Treadmill', duration: '', distance: '', hr: '' }])
+  const [cardioRows, setCardioRows] = useState([{ id: 1, type: 'Treadmill', duration: '', distance: '', hr: '', zone: CARDIO_ZONES[0], calories: '' }])
   const [pilatesFocus, setPilatesFocus] = useState('Full body')
 
   const [reflectSession, setReflectSession] = useState(null)
@@ -111,7 +112,7 @@ export default function App() {
   }
 
   function addCardioRow() {
-    setCardioRows(rows => [...rows, { id: Date.now(), type: 'Treadmill', duration: '', distance: '', hr: '' }])
+    setCardioRows(rows => [...rows, { id: Date.now(), type: 'Treadmill', duration: '', distance: '', hr: '', zone: CARDIO_ZONES[0], calories: '' }])
   }
 
   function updateCardioRow(id, field, value) {
@@ -144,7 +145,7 @@ export default function App() {
       if (sessionType === 'Cardio' || sessionType === 'Mixed') {
         for (const row of cardioRows) {
           if (row.type && row.duration) {
-            const c = { sessionId: sid, date: form.date, type: row.type, duration: +row.duration, distance: row.distance || '', hr: row.hr || '' }
+            const c = { sessionId: sid, date: form.date, type: row.type, duration: +row.duration, distance: row.distance || '', hr: row.hr || '', zone: row.zone || '', calories: row.calories || '' }
             await api('saveCardio', { cardio: c })
             newCardio.push(c)
           }
@@ -156,7 +157,7 @@ export default function App() {
       setCardio(c => [...c, ...newCardio])
       setForm({ date: todayStr(), name: '', duration: '', rpe: '', notes: '' })
       setExRows([{ id: 1, category: 'Push', name: 'Bench press', sets: '', reps: '', kg: '', rpe: '' }])
-      setCardioRows([{ id: 1, type: 'Treadmill', duration: '', distance: '', hr: '' }])
+      setCardioRows([{ id: 1, type: 'Treadmill', duration: '', distance: '', hr: '', zone: CARDIO_ZONES[0], calories: '' }])
       setPilatesFocus('Full body')
       setTab('history')
     } catch (e) { alert('Error saving. Please try again.') }
@@ -179,7 +180,7 @@ export default function App() {
       const cars = cardio.filter(c => c.sessionId === s.id)
       const ref = reflections.find(r => r.sessionId === s.id)
       const exStr = exs.map(e => `${e.name} (${e.category}) ${e.sets}x${e.reps}${e.kg ? ' @' + e.kg + 'kg' : ''}${e.rpe ? ' RPE' + e.rpe : ''}`).join(', ')
-      const carStr = cars.map(c => `${c.type} ${c.duration}min${c.distance ? ' ' + c.distance + 'km' : ''}${c.hr ? ' ' + c.hr + 'bpm' : ''}`).join(', ')
+      const carStr = cars.map(c => `${c.type} ${c.duration}min${c.distance ? ' ' + c.distance + 'km' : ''}${c.hr ? ' ' + c.hr + 'bpm' : ''}${c.zone ? ' ' + c.zone : ''}${c.calories ? ' ' + c.calories + 'cal' : ''}`).join(', ')
       const refStr = ref ? ` | Reflection: energy ${ref.energy}/5, sleep ${ref.sleep}/5, stress ${ref.stress}/5${ref.notes ? ' — ' + ref.notes : ''}` : ''
       return `${s.date}: ${s.type}${s.name ? ' — ' + s.name : ''} (${s.duration}min, overall RPE ${s.rpe})${s.notes ? ' | ' + s.notes : ''}${exStr ? ' | Exercises: ' + exStr : ''}${carStr ? ' | Cardio: ' + carStr : ''}${refStr}`
     }).join('\n')
@@ -397,9 +398,18 @@ RESPONSE GUIDELINES:
                       </div>
                       <div><label className={styles.fieldLabel}>Duration (min)</label><input type="number" placeholder="30" min="1" value={row.duration} onChange={e => updateCardioRow(row.id, 'duration', e.target.value)} /></div>
                     </div>
-                    <div className={styles.grid2}>
+                    <div className={styles.grid2} style={{ marginBottom: 8 }}>
                       <div><label className={styles.fieldLabel}>Distance (km)</label><input type="number" placeholder="5.0" step="0.1" value={row.distance} onChange={e => updateCardioRow(row.id, 'distance', e.target.value)} /></div>
                       <div><label className={styles.fieldLabel}>Avg HR (bpm)</label><input type="number" placeholder="135" value={row.hr} onChange={e => updateCardioRow(row.id, 'hr', e.target.value)} /></div>
+                    </div>
+                    <div className={styles.grid2}>
+                      <div>
+                        <label className={styles.fieldLabel}>Zone</label>
+                        <select value={row.zone} onChange={e => updateCardioRow(row.id, 'zone', e.target.value)}>
+                          {CARDIO_ZONES.map(z => <option key={z}>{z}</option>)}
+                        </select>
+                      </div>
+                      <div><label className={styles.fieldLabel}>Calories</label><input type="number" placeholder="300" value={row.calories} onChange={e => updateCardioRow(row.id, 'calories', e.target.value)} /></div>
                     </div>
                   </div>
                 ))}
@@ -454,7 +464,7 @@ RESPONSE GUIDELINES:
                     <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       {cars.map((c, i) => (
                         <span key={i} style={{ fontSize: 11, background: '#ecfdf5', border: '1px solid #d1fae5', borderRadius: 4, padding: '2px 7px', color: '#065f46' }}>
-                          {c.type} {c.duration}min{c.distance ? ' · ' + c.distance + 'km' : ''}{c.hr ? ' · ' + c.hr + 'bpm' : ''}
+                          {c.type} {c.duration}min{c.distance ? ' · ' + c.distance + 'km' : ''}{c.hr ? ' · ' + c.hr + 'bpm' : ''}{c.zone ? ' · ' + c.zone : ''}{c.calories ? ' · ' + c.calories + ' cal' : ''}
                         </span>
                       ))}
                     </div>

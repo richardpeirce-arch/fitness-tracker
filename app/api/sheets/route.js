@@ -85,7 +85,7 @@ export async function POST(request) {
 
     if (action === 'saveCardio') {
       const c = body.cardio
-      await appendRow(sheets, 'Cardio', [c.sessionId, c.date, c.type, c.duration, c.distance || '', c.hr || ''])
+      await appendRow(sheets, 'Cardio', [c.sessionId, c.date, c.type, c.duration, c.distance || '', c.hr || '', c.zone || '', c.calories || ''])
       return Response.json({ ok: true })
     }
 
@@ -93,7 +93,7 @@ export async function POST(request) {
       const rows = await getRows(sheets, 'Cardio')
       const cardio = rows.map(r => ({
         sessionId: r[0], date: r[1], type: r[2], duration: +r[3],
-        distance: r[4] || '', hr: r[5] || '',
+        distance: r[4] || '', hr: r[5] || '', zone: r[6] || '', calories: r[7] || '',
       }))
       return Response.json({ cardio })
     }
