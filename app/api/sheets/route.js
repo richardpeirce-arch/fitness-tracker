@@ -114,7 +114,7 @@ export async function POST(request) {
 
     if (action === 'saveReflection') {
       const r = body.reflection
-      await appendRow(sheets, 'Reflections', [r.sessionId, r.date, r.energy, r.sleep, r.stress, r.notes || ''])
+      await appendRow(sheets, 'Reflections', [r.sessionId, r.date, r.energy, r.sleep || '', r.stress || '', r.notes || ''])
       return Response.json({ ok: true })
     }
 
@@ -124,6 +124,38 @@ export async function POST(request) {
         sessionId: r[0], date: r[1], energy: +r[2], sleep: +r[3], stress: +r[4], notes: r[5] || '',
       }))
       return Response.json({ reflections })
+    }
+
+    if (action === 'saveCheckIn') {
+      const c = body.checkIn
+      const rows = await getRows(sheets, 'CheckIns')
+      const rowIndex = rows.findIndex(r => r[0] === c.date)
+      const values = [c.date, new Date().toISOString(), c.lightsOut || '', c.wakeTime || '', c.wokenBy || '', c.quality || '', c.energy || '', c.stress || '', c.notes || '']
+      if (rowIndex === -1) {
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: SHEET_ID,
+          range: 'CheckIns!A1',
+          valueInputOption: 'RAW',
+          requestBody: { values: [values] },
+        })
+      } else {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID,
+          range: `CheckIns!A${rowIndex + 1}`,
+          valueInputOption: 'RAW',
+          requestBody: { values: [values] },
+        })
+      }
+      return Response.json({ ok: true, loggedAt: values[1] })
+    }
+
+    if (action === 'getCheckIns') {
+      const rows = await getRows(sheets, 'CheckIns')
+      const checkIns = rows.map(r => ({
+        date: r[0], loggedAt: r[1] || '', lightsOut: r[2] || '', wakeTime: r[3] || '',
+        wokenBy: r[4] || '', quality: r[5] || '', energy: r[6] || '', stress: r[7] || '', notes: r[8] || '',
+      }))
+      return Response.json({ checkIns })
     }
 
     if (action === 'saveProfile') {

@@ -30,6 +30,17 @@ function todayStr() { return new Date().toISOString().split('T')[0] }
 function fmtDate(d) { return new Date(d + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' }) }
 function rpeColor(r) { return +r >= 8 ? '#dc2626' : +r >= 6 ? '#d97706' : '#16a34a' }
 
+function timeInBed(lightsOut, wakeTime) {
+  if (!lightsOut || !wakeTime) return null
+  const [oh, om] = lightsOut.split(':').map(Number)
+  const [wh, wm] = wakeTime.split(':').map(Number)
+  if ([oh, om, wh, wm].some(Number.isNaN)) return null
+  let mins = (wh * 60 + wm) - (oh * 60 + om)
+  if (mins <= 0) mins += 24 * 60
+  const h = Math.floor(mins / 60), m = mins % 60
+  return `${h}h ${m}m`
+}
+
 const DEFAULT_PROFILE = {
   age: '42',
   experience: '12 years training, less frequently in the last 6 since having kids',
@@ -96,7 +107,12 @@ export default function App() {
   const [pilatesFocus, setPilatesFocus] = useState('Full body')
 
   const [reflectSession, setReflectSession] = useState(null)
-  const [reflectForm, setReflectForm] = useState({ energy: 3, sleep: 3, stress: 3, notes: '' })
+  const [reflectForm, setReflectForm] = useState({ energy: 3, notes: '' })
+
+  const [checkIns, setCheckIns] = useState([])
+  const [checkInEditing, setCheckInEditing] = useState(false)
+  const [checkInForm, setCheckInForm] = useState({ lightsOut: '', wakeTime: '', wokenBy: 'Kids', quality: 3, energy: 3, stress: 3, notes: '' })
+  const [savingCheckIn, setSavingCheckIn] = useState(false)
 
   useEffect(() => {
     loadAll()
@@ -108,15 +124,16 @@ export default function App() {
   async function loadAll() {
     setLoading(true)
     try {
-      const [s, e, c, r, p] = await Promise.all([
+      const [s, e, c, r, p, ci] = await Promise.all([
         api('getSessions'), api('getExercises'), api('getCardio'),
-        api('getReflections'), api('getProfile'),
+        api('getReflections'), api('getProfile'), api('getCheckIns'),
       ])
       if (s.sessions) setSessions(s.sessions)
       if (e.exercises) setExercises(e.exercises)
       if (c.cardio) setCardio(c.cardio)
       if (r.reflections) setReflections(r.reflections)
       if (p.profile) setProfile({ ...DEFAULT_PROFILE, ...p.profile })
+      if (ci.checkIns) setCheckIns(ci.checkIns)
     } catch (e) { console.error(e) }
     setLoading(false)
   }
@@ -202,8 +219,23 @@ export default function App() {
     await api('saveReflection', { reflection })
     setReflections(r => [...r, reflection])
     setReflectSession(null)
-    setReflectForm({ energy: 3, sleep: 3, stress: 3, notes: '' })
+    setReflectForm({ energy: 3, notes: '' })
     alert('Reflection saved!')
+  }
+
+  async function saveCheckIn() {
+    setSavingCheckIn(true)
+    const checkIn = { date: todayStr(), ...checkInForm }
+    try {
+      const res = await api('saveCheckIn', { checkIn })
+      if (res.error) throw new Error(res.error)
+      setCheckIns(cs => {
+        const others = cs.filter(c => c.date !== checkIn.date)
+        return [...others, { ...checkIn, loggedAt: res.loggedAt || new Date().toISOString() }]
+      })
+      setCheckInEditing(false)
+    } catch (e) { alert('Error saving check-in. Please try again.') }
+    setSavingCheckIn(false)
   }
 
   function buildContext() {
@@ -213,7 +245,7 @@ export default function App() {
       const ref = reflections.find(r => r.sessionId === s.id)
       const exStr = exs.map(e => `${e.name} (${e.category}) ${e.sets}x${e.reps}${e.kg ? ' @' + e.kg + 'kg' : ''}${e.rpe ? ' RPE' + e.rpe : ''}`).join(', ')
       const carStr = cars.map(c => `${c.type} ${c.duration}min${c.distance ? ' ' + c.distance + 'km' : ''}${c.hr ? ' ' + c.hr + 'bpm' : ''}${c.zone ? ' ' + c.zone : ''}${c.calories ? ' ' + c.calories + 'cal' : ''}`).join(', ')
-      const refStr = ref ? ` | Reflection: energy ${ref.energy}/5, sleep ${ref.sleep}/5, stress ${ref.stress}/5${ref.notes ? ' — ' + ref.notes : ''}` : ''
+      const refStr = ref ? ` | Reflection: energy ${ref.energy}/5${ref.notes ? ' — ' + ref.notes : ''}` : ''
       return `${s.date}: ${s.type}${s.name ? ' — ' + s.name : ''} (${s.duration}min, overall RPE ${s.rpe})${s.notes ? ' | ' + s.notes : ''}${exStr ? ' | Exercises: ' + exStr : ''}${carStr ? ' | Cardio: ' + carStr : ''}${refStr}`
     }).join('\n')
 
@@ -232,7 +264,18 @@ export default function App() {
       return `${name}: ${best.kg}kg × ${best.sets}×${best.reps}`
     }).filter(Boolean).join(', ')
 
-    return { sessionLines, fatigueStr, bests }
+    const today = todayStr()
+    const sevenDaysAgoCi = new Date(); sevenDaysAgoCi.setDate(sevenDaysAgoCi.getDate() - 7)
+    const recentCheckIns = checkIns
+      .filter(c => new Date(c.date + 'T12:00:00') >= sevenDaysAgoCi)
+      .sort((a, b) => a.date.localeCompare(b.date))
+    const checkInLines = recentCheckIns.map(c => {
+      const tib = timeInBed(c.lightsOut, c.wakeTime)
+      return `${c.date}${c.date === today ? ' (TODAY)' : ''}: lights out ${c.lightsOut || '—'}, woke ${c.wakeTime || '—'}${tib ? ' (' + tib + ' in bed)' : ''}, woken by ${c.wokenBy || '—'}, quality ${c.quality || '—'}/5, energy ${c.energy || '—'}/5, stress ${c.stress || '—'}/5${c.notes ? ' — ' + c.notes : ''}`
+    }).join('\n')
+    const todayCheckInObj = checkIns.find(c => c.date === today)
+
+    return { sessionLines, fatigueStr, bests, checkInLines, hasTodayCheckIn: !!todayCheckInObj }
   }
 
   async function sendChat(msg) {
@@ -243,7 +286,7 @@ export default function App() {
     setChatHistory(newHistory)
     setChatLoading(true)
 
-    const { sessionLines, fatigueStr, bests } = buildContext()
+    const { sessionLines, fatigueStr, bests, checkInLines, hasTodayCheckIn } = buildContext()
 
     const systemPrompt = `You are Atlas, an experienced personal trainer and wellness coach. Warm but direct. You give specific, actionable advice grounded in your client's actual data.
 
@@ -252,7 +295,11 @@ CLIENT PROFILE:
 - Training background: ${profile.experience}
 - Injuries/limitations: ${profile.injuries}
 - Goals: ${profile.goals}
+- Sleep target: lights out by 9:30pm on work nights; wake time is set by the kids from ~4:30am, so bedtime is the main sleep lever
 ${profile.notes ? '- Additional notes: ' + profile.notes : ''}
+
+DAILY CHECK-INS (last 7 days, today called out):
+${checkInLines || 'No check-ins logged yet.'}
 
 TRAINING PHILOSOPHY FOR THIS CLIENT:
 - Healthspan and longevity are the primary lens, not performance or aesthetics
@@ -273,7 +320,7 @@ PERSONAL BESTS:
 ${bests || 'None recorded yet.'}
 
 RESPONSE GUIDELINES:
-- When planning a session or week, ask about energy, sleep and stress if the client hasn't already told you
+- Use today's check-in for energy, sleep and stress; only ask about them if no check-in exists for today${hasTodayCheckIn ? '' : ' (none exists for today — ask)'}
 - Reference their actual data: specific exercises, weights, dates
 - For programme planning give specific exercises, sets, reps and weight suggestions based on their logged bests
 - Keep responses concise unless a detailed plan is requested
@@ -314,6 +361,20 @@ RESPONSE GUIDELINES:
     weeks.push({ count, label: s.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) })
   }
   const maxWeek = Math.max(...weeks.map(w => w.count), 1)
+  const todayCheckIn = checkIns.find(c => c.date === todayStr())
+
+  function startCheckInEdit() {
+    if (todayCheckIn) {
+      setCheckInForm({
+        lightsOut: todayCheckIn.lightsOut || '', wakeTime: todayCheckIn.wakeTime || '',
+        wokenBy: todayCheckIn.wokenBy || 'Kids', quality: +todayCheckIn.quality || 3,
+        energy: +todayCheckIn.energy || 3, stress: +todayCheckIn.stress || 3, notes: todayCheckIn.notes || '',
+      })
+    } else {
+      setCheckInForm({ lightsOut: '', wakeTime: '', wokenBy: 'Kids', quality: 3, energy: 3, stress: 3, notes: '' })
+    }
+    setCheckInEditing(true)
+  }
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: '#888', fontSize: 14 }}>
@@ -343,6 +404,48 @@ RESPONSE GUIDELINES:
 
         {tab === 'log' && (
           <div>
+            <div className={styles.card}>
+              <div className={styles.sectionLabel}>Morning check-in</div>
+              {!checkInEditing ? (
+                todayCheckIn ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontSize: 13, color: '#555' }}>
+                      {todayCheckIn.lightsOut && todayCheckIn.wakeTime ? `${todayCheckIn.lightsOut} → ${todayCheckIn.wakeTime}` : 'Logged'}
+                      {todayCheckIn.quality ? ` · quality ${todayCheckIn.quality}/5` : ''}
+                      {todayCheckIn.energy ? ` · energy ${todayCheckIn.energy}/5` : ''}
+                    </div>
+                    <button className={styles.btnGhost} style={{ fontSize: 11, padding: '4px 10px' }} onClick={startCheckInEdit}>Edit</button>
+                  </div>
+                ) : (
+                  <button className={styles.btnPrimary} style={{ width: '100%' }} onClick={startCheckInEdit}>Log this morning</button>
+                )
+              ) : (
+                <div>
+                  <div className={styles.grid2} style={{ marginBottom: 8 }}>
+                    <div><label className={styles.fieldLabel}>Lights out (last night)</label><input type="time" value={checkInForm.lightsOut} onChange={e => setCheckInForm(f => ({ ...f, lightsOut: e.target.value }))} /></div>
+                    <div><label className={styles.fieldLabel}>Wake time</label><input type="time" value={checkInForm.wakeTime} onChange={e => setCheckInForm(f => ({ ...f, wakeTime: e.target.value }))} /></div>
+                  </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <label className={styles.fieldLabel}>Woken by</label>
+                    <select value={checkInForm.wokenBy} onChange={e => setCheckInForm(f => ({ ...f, wokenBy: e.target.value }))}>
+                      {['Kids', 'Woke naturally', 'Alarm', 'Other'].map(w => <option key={w}>{w}</option>)}
+                    </select>
+                  </div>
+                  <Slider label="Sleep quality" value={checkInForm.quality} onChange={v => setCheckInForm(f => ({ ...f, quality: v }))} />
+                  <Slider label="Energy" value={checkInForm.energy} onChange={v => setCheckInForm(f => ({ ...f, energy: v }))} />
+                  <Slider label="Stress" value={checkInForm.stress} onChange={v => setCheckInForm(f => ({ ...f, stress: v }))} />
+                  <div style={{ marginTop: 10, marginBottom: 14 }}>
+                    <label className={styles.fieldLabel}>Notes (optional)</label>
+                    <input type="text" placeholder="Anything notable…" value={checkInForm.notes} onChange={e => setCheckInForm(f => ({ ...f, notes: e.target.value }))} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className={styles.btnPrimary} onClick={saveCheckIn} disabled={savingCheckIn}>{savingCheckIn ? 'Saving…' : 'Save check-in'}</button>
+                    <button className={styles.btnGhost} onClick={() => setCheckInEditing(false)}>Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {!activeSession ? (
               <div className={styles.card}>
                 <div className={styles.sectionLabel}>Start a session</div>
@@ -507,7 +610,7 @@ RESPONSE GUIDELINES:
                       </div>
                       {s.notes && <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{s.notes}</div>}
                     </div>
-                    <button className={styles.btnGhost} style={{ fontSize: 11, padding: '4px 10px', marginLeft: 8 }} onClick={() => { setReflectSession(s); if (ref) setReflectForm({ energy: ref.energy, sleep: ref.sleep, stress: ref.stress, notes: ref.notes }); setTab('reflect') }}>
+                    <button className={styles.btnGhost} style={{ fontSize: 11, padding: '4px 10px', marginLeft: 8 }} onClick={() => { setReflectSession(s); if (ref) setReflectForm({ energy: ref.energy, notes: ref.notes }); setTab('reflect') }}>
                       {ref ? '✓ Reflected' : 'Reflect'}
                     </button>
                   </div>
@@ -601,7 +704,7 @@ RESPONSE GUIDELINES:
                         <span style={{ fontSize: 13, fontWeight: 500 }}>{s.name || s.type}</span>
                         <span style={{ fontSize: 12, color: '#888', marginLeft: 8 }}>{fmtDate(s.date)}</span>
                       </div>
-                      <button className={ref ? styles.btnSecondary : styles.btnGhost} style={{ fontSize: 12 }} onClick={() => { setReflectSession(s); if (ref) setReflectForm({ energy: ref.energy, sleep: ref.sleep, stress: ref.stress, notes: ref.notes }) }}>
+                      <button className={ref ? styles.btnSecondary : styles.btnGhost} style={{ fontSize: 12 }} onClick={() => { setReflectSession(s); if (ref) setReflectForm({ energy: ref.energy, notes: ref.notes }) }}>
                         {ref ? '✓ Edit' : 'Add'}
                       </button>
                     </div>
@@ -615,8 +718,6 @@ RESPONSE GUIDELINES:
                   <span style={{ fontSize: 12, color: '#888', marginLeft: 8 }}>{fmtDate(reflectSession.date)}</span>
                 </div>
                 <Slider label="Energy" value={reflectForm.energy} onChange={v => setReflectForm(f => ({ ...f, energy: v }))} />
-                <Slider label="Sleep" value={reflectForm.sleep} onChange={v => setReflectForm(f => ({ ...f, sleep: v }))} />
-                <Slider label="Stress" value={reflectForm.stress} onChange={v => setReflectForm(f => ({ ...f, stress: v }))} />
                 <div style={{ marginTop: 10, marginBottom: 14 }}>
                   <label className={styles.fieldLabel}>Notes — DOMS, how you felt, anything notable</label>
                   <textarea value={reflectForm.notes} onChange={e => setReflectForm(f => ({ ...f, notes: e.target.value }))} placeholder="e.g. Legs sore from yesterday's pilates, felt strong on bench…" />
