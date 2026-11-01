@@ -130,7 +130,7 @@ export async function POST(request) {
       const c = body.checkIn
       const rows = await getRows(sheets, 'CheckIns')
       const rowIndex = rows.findIndex(r => r[0] === c.date)
-      const values = [c.date, new Date().toISOString(), c.lightsOut || '', c.wakeTime || '', c.wokenBy || '', c.quality || '', c.energy || '', c.stress || '', c.notes || '']
+      const values = [c.date, new Date().toISOString(), c.lightsOut || '', c.wakeTime || '', c.wokenBy || '', c.quality || '', c.energy || '', c.stress || '', c.notes || '', c.sleepOpportunityMin != null ? c.sleepOpportunityMin : '']
       if (rowIndex === -1) {
         await sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID,
@@ -154,13 +154,14 @@ export async function POST(request) {
       const checkIns = rows.map(r => ({
         date: r[0], loggedAt: r[1] || '', lightsOut: r[2] || '', wakeTime: r[3] || '',
         wokenBy: r[4] || '', quality: r[5] || '', energy: r[6] || '', stress: r[7] || '', notes: r[8] || '',
+        sleepOpportunityMin: r[9] || '',
       }))
       return Response.json({ checkIns })
     }
 
     if (action === 'saveProfile') {
       const p = body.profile
-      await clearAndWrite(sheets, 'Profile', [[p.age, p.experience, p.injuries, p.goals, p.notes]])
+      await clearAndWrite(sheets, 'Profile', [[p.age, p.experience, p.injuries, p.goals, p.notes, p.targetBedtime || '']])
       return Response.json({ ok: true })
     }
 
@@ -168,7 +169,7 @@ export async function POST(request) {
       const rows = await getRows(sheets, 'Profile')
       if (!rows.length) return Response.json({ profile: null })
       const r = rows[0]
-      return Response.json({ profile: { age: r[0], experience: r[1], injuries: r[2], goals: r[3], notes: r[4] } })
+      return Response.json({ profile: { age: r[0], experience: r[1], injuries: r[2], goals: r[3], notes: r[4], targetBedtime: r[5] || '21:30' } })
     }
 
     return Response.json({ error: 'Unknown action' }, { status: 400 })

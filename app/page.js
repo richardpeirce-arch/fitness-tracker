@@ -26,19 +26,35 @@ const BADGE = {
   Mixed: { bg: '#f3f4f6', color: '#374151' },
 }
 
-function todayStr() { return new Date().toISOString().split('T')[0] }
+function todayStr() { return new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Brisbane' }) }
 function fmtDate(d) { return new Date(d + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' }) }
 function rpeColor(r) { return +r >= 8 ? '#dc2626' : +r >= 6 ? '#d97706' : '#16a34a' }
 
-function timeInBed(lightsOut, wakeTime) {
+function sleepOpportunityMinutes(lightsOut, wakeTime) {
   if (!lightsOut || !wakeTime) return null
   const [oh, om] = lightsOut.split(':').map(Number)
   const [wh, wm] = wakeTime.split(':').map(Number)
   if ([oh, om, wh, wm].some(Number.isNaN)) return null
   let mins = (wh * 60 + wm) - (oh * 60 + om)
   if (mins <= 0) mins += 24 * 60
-  const h = Math.floor(mins / 60), m = mins % 60
+  return mins
+}
+
+function fmtMinutes(mins) {
+  if (mins == null || Number.isNaN(mins)) return null
+  const h = Math.floor(mins / 60), m = Math.round(mins % 60)
   return `${h}h ${m}m`
+}
+
+function timeInBed(lightsOut, wakeTime) {
+  return fmtMinutes(sleepOpportunityMinutes(lightsOut, wakeTime))
+}
+
+function minutesSinceMidnight(hhmm) {
+  if (!hhmm) return null
+  const [h, m] = hhmm.split(':').map(Number)
+  if ([h, m].some(Number.isNaN)) return null
+  return h * 60 + m
 }
 
 const DEFAULT_PROFILE = {
@@ -47,6 +63,41 @@ const DEFAULT_PROFILE = {
   injuries: 'Left shoulder — multiple surgeries, now stable. Shoulder stability work important. Lower back can be tight — pilates helps.',
   goals: 'Healthspan and longevity. Support a stressful job and family life. General health and consistency, not athletic performance.',
   notes: '',
+  targetBedtime: '21:30',
+}
+
+const WOKEN_BY_OPTIONS = ['Kids', 'Cat', 'Self', 'Alarm']
+
+const SCORE_DEFINITIONS = {
+  quality: [
+    'Very poor: barely slept or badly broken; woke exhausted',
+    'Poor: short or repeatedly broken; tired all morning',
+    'OK: some disruption; adequate but not refreshed',
+    'Good: little disruption; woke reasonably refreshed',
+    'Excellent: slept through or close to it; woke properly refreshed',
+  ],
+  energy: [
+    'Drained: running on empty; training would be a struggle',
+    'Low: flat and tired; light session at most',
+    'OK: normal baseline; fine for a standard session',
+    'Good: fresh and alert; ready for a solid session',
+    'Great: sharp and energetic; ready to push',
+  ],
+  stress: [
+    'Calm: nothing weighing on me',
+    'Mild: normal background load, easily managed',
+    'Moderate: noticeable pressure; on my mind',
+    'High: hard to switch off; affecting mood or focus',
+    'Very high: overwhelmed or close to it',
+  ],
+}
+
+function ScoreLegend({ kind }) {
+  return (
+    <div style={{ fontSize: 11, color: '#888', lineHeight: 1.5, margin: '2px 0 10px' }}>
+      {SCORE_DEFINITIONS[kind].map((d, i) => <div key={i}>{i + 1} = {d}</div>)}
+    </div>
+  )
 }
 
 function api(action, data = {}) {
@@ -111,7 +162,7 @@ export default function App() {
 
   const [checkIns, setCheckIns] = useState([])
   const [checkInEditing, setCheckInEditing] = useState(false)
-  const [checkInForm, setCheckInForm] = useState({ lightsOut: '', wakeTime: '', wokenBy: 'Kids', quality: 3, energy: 3, stress: 3, notes: '' })
+  const [checkInForm, setCheckInForm] = useState({ lightsOut: '', wakeTime: '', wokenBy: WOKEN_BY_OPTIONS[0], quality: 3, energy: 3, stress: 3, notes: '' })
   const [savingCheckIn, setSavingCheckIn] = useState(false)
 
   useEffect(() => {
@@ -225,7 +276,11 @@ export default function App() {
 
   async function saveCheckIn() {
     setSavingCheckIn(true)
-    const checkIn = { date: todayStr(), ...checkInForm }
+    const checkIn = {
+      date: todayStr(),
+      ...checkInForm,
+      sleepOpportunityMin: sleepOpportunityMinutes(checkInForm.lightsOut, checkInForm.wakeTime),
+    }
     try {
       const res = await api('saveCheckIn', { checkIn })
       if (res.error) throw new Error(res.error)
@@ -275,7 +330,14 @@ export default function App() {
     }).join('\n')
     const todayCheckInObj = checkIns.find(c => c.date === today)
 
-    return { sessionLines, fatigueStr, bests, checkInLines, hasTodayCheckIn: !!todayCheckInObj }
+    const sortedCheckIns = [...checkIns].sort((a, b) => b.date.localeCompare(a.date))
+    let highStressStreak = 0
+    for (const c of sortedCheckIns) {
+      if (+c.stress >= 4) highStressStreak++
+      else break
+    }
+
+    return { sessionLines, fatigueStr, bests, checkInLines, hasTodayCheckIn: !!todayCheckInObj, highStressStreak }
   }
 
   async function sendChat(msg) {
@@ -286,7 +348,7 @@ export default function App() {
     setChatHistory(newHistory)
     setChatLoading(true)
 
-    const { sessionLines, fatigueStr, bests, checkInLines, hasTodayCheckIn } = buildContext()
+    const { sessionLines, fatigueStr, bests, checkInLines, hasTodayCheckIn, highStressStreak } = buildContext()
 
     const systemPrompt = `You are Atlas, an experienced personal trainer and wellness coach. Warm but direct. You give specific, actionable advice grounded in your client's actual data.
 
@@ -295,7 +357,7 @@ CLIENT PROFILE:
 - Training background: ${profile.experience}
 - Injuries/limitations: ${profile.injuries}
 - Goals: ${profile.goals}
-- Sleep target: lights out by 9:30pm on work nights; wake time is set by the kids from ~4:30am, so bedtime is the main sleep lever
+- Sleep target: lights out by ${profile.targetBedtime || '21:30'} on work nights; wake time is set by the kids from ~4:30am, so bedtime is the main sleep lever
 ${profile.notes ? '- Additional notes: ' + profile.notes : ''}
 
 DAILY CHECK-INS (last 7 days, today called out):
@@ -321,6 +383,7 @@ ${bests || 'None recorded yet.'}
 
 RESPONSE GUIDELINES:
 - Use today's check-in for energy, sleep and stress; only ask about them if no check-in exists for today${hasTodayCheckIn ? '' : ' (none exists for today — ask)'}
+${highStressStreak >= 3 ? `- Stress has been 4/5 or higher for ${highStressStreak} days running — acknowledge this directly and with genuine concern, not just as a reason to adjust training load` : ''}
 - Reference their actual data: specific exercises, weights, dates
 - For programme planning give specific exercises, sets, reps and weight suggestions based on their logged bests
 - Keep responses concise unless a detailed plan is requested
@@ -362,6 +425,23 @@ RESPONSE GUIDELINES:
   }
   const maxWeek = Math.max(...weeks.map(w => w.count), 1)
   const todayCheckIn = checkIns.find(c => c.date === todayStr())
+
+  function checkInSummary(days) {
+    const since = new Date(); since.setDate(since.getDate() - days)
+    const inRange = checkIns.filter(c => new Date(c.date + 'T12:00:00') >= since)
+    const withOpportunity = inRange
+      .map(c => c.sleepOpportunityMin !== '' && c.sleepOpportunityMin != null ? +c.sleepOpportunityMin : sleepOpportunityMinutes(c.lightsOut, c.wakeTime))
+      .filter(m => m != null && !Number.isNaN(m))
+    const avgMin = withOpportunity.length ? withOpportunity.reduce((a, b) => a + b, 0) / withOpportunity.length : null
+    const targetMin = minutesSinceMidnight(profile.targetBedtime) ?? minutesSinceMidnight('21:30')
+    const withLightsOut = inRange.filter(c => c.lightsOut)
+    const onTarget = withLightsOut.filter(c => minutesSinceMidnight(c.lightsOut) <= targetMin)
+    const pctOnTarget = withLightsOut.length ? Math.round((onTarget.length / withLightsOut.length) * 100) : null
+    return { avgMin, pctOnTarget, nights: inRange.length }
+  }
+  const summary7 = checkInSummary(7)
+  const summary28 = checkInSummary(28)
+  const recentCheckIns = [...checkIns].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 7)
 
   function startCheckInEdit() {
     if (todayCheckIn) {
@@ -428,12 +508,15 @@ RESPONSE GUIDELINES:
                   <div style={{ marginBottom: 10 }}>
                     <label className={styles.fieldLabel}>Woken by</label>
                     <select value={checkInForm.wokenBy} onChange={e => setCheckInForm(f => ({ ...f, wokenBy: e.target.value }))}>
-                      {['Kids', 'Woke naturally', 'Alarm', 'Other'].map(w => <option key={w}>{w}</option>)}
+                      {(WOKEN_BY_OPTIONS.includes(checkInForm.wokenBy) ? WOKEN_BY_OPTIONS : [checkInForm.wokenBy, ...WOKEN_BY_OPTIONS]).map(w => <option key={w}>{w}</option>)}
                     </select>
                   </div>
                   <Slider label="Sleep quality" value={checkInForm.quality} onChange={v => setCheckInForm(f => ({ ...f, quality: v }))} />
+                  <ScoreLegend kind="quality" />
                   <Slider label="Energy" value={checkInForm.energy} onChange={v => setCheckInForm(f => ({ ...f, energy: v }))} />
-                  <Slider label="Stress" value={checkInForm.stress} onChange={v => setCheckInForm(f => ({ ...f, stress: v }))} />
+                  <ScoreLegend kind="energy" />
+                  <Slider label="Stress (higher = more stressed)" value={checkInForm.stress} onChange={v => setCheckInForm(f => ({ ...f, stress: v }))} />
+                  <ScoreLegend kind="stress" />
                   <div style={{ marginTop: 10, marginBottom: 14 }}>
                     <label className={styles.fieldLabel}>Notes (optional)</label>
                     <input type="text" placeholder="Anything notable…" value={checkInForm.notes} onChange={e => setCheckInForm(f => ({ ...f, notes: e.target.value }))} />
@@ -650,6 +733,27 @@ RESPONSE GUIDELINES:
             </div>
 
             <div className={styles.card}>
+              <div className={styles.sectionLabel}>Sleep & check-ins</div>
+              <div className={styles.grid2} style={{ marginBottom: 12 }}>
+                {[['Last 7 days', summary7], ['Last 28 days', summary28]].map(([label, s]) => (
+                  <div key={label} style={{ fontSize: 13 }}>
+                    <div style={{ fontWeight: 500, marginBottom: 4 }}>{label}</div>
+                    <div style={{ color: '#666' }}>Avg sleep opportunity: {s.avgMin != null ? fmtMinutes(s.avgMin) : '—'}</div>
+                    <div style={{ color: '#666' }}>Lights-out by target: {s.pctOnTarget != null ? s.pctOnTarget + '%' : '—'}</div>
+                  </div>
+                ))}
+              </div>
+              {recentCheckIns.length === 0 ? (
+                <p style={{ color: '#888', fontSize: 13 }}>No check-ins logged yet.</p>
+              ) : recentCheckIns.map(c => (
+                <div key={c.date} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', padding: '5px 0', borderBottom: '1px solid #f3f4f6' }}>
+                  <span>{fmtDate(c.date)}</span>
+                  <span>{c.lightsOut && c.wakeTime ? `${c.lightsOut} → ${c.wakeTime}` : '—'}{c.quality ? ` · quality ${c.quality}/5` : ''}{c.stress ? ` · stress ${c.stress}/5` : ''}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className={styles.card}>
               <div className={styles.sectionLabel}>8-week activity</div>
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 5, height: 72, marginBottom: 6 }}>
                 {weeks.map((w, i) => (
@@ -802,9 +906,13 @@ RESPONSE GUIDELINES:
               <label className={styles.fieldLabel}>Goals</label>
               <textarea value={profile.goals} onChange={e => setProfile(p => ({ ...p, goals: e.target.value }))} />
             </div>
-            <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 12 }}>
               <label className={styles.fieldLabel}>Additional notes for Atlas</label>
               <textarea placeholder="Anything else Atlas should know…" value={profile.notes} onChange={e => setProfile(p => ({ ...p, notes: e.target.value }))} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label className={styles.fieldLabel}>Target bedtime (lights out)</label>
+              <input type="time" value={profile.targetBedtime} onChange={e => setProfile(p => ({ ...p, targetBedtime: e.target.value }))} />
             </div>
             <button className={styles.btnPrimary} onClick={async () => { await api('saveProfile', { profile }); alert('Profile saved!') }}>
               Save profile
